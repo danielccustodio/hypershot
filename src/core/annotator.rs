@@ -96,8 +96,21 @@ pub fn draw_highlighter(image: &mut RgbaImage, rect: Rect, highlight_color: Colo
     }
 }
 
+/// Draws a thick antialiased line between two points.
+pub fn draw_line(
+    image: &mut RgbaImage,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    color: ColorRgba,
+    thickness: i32,
+) {
+    draw_line_thick(image, x0, y0, x1, y1, Rgba(color), thickness);
+}
+
 /// Bresenham thick line algorithm.
-fn draw_line_thick(
+pub fn draw_line_thick(
     image: &mut RgbaImage,
     mut x0: i32,
     mut y0: i32,

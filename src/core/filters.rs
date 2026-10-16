@@ -30,6 +30,31 @@ impl Rect {
             height: clamped_h,
         })
     }
+
+    /// Creates a Rect from any two diagonal points (x0, y0) and (x1, y1).
+    pub fn from_points(x0: i32, y0: i32, x1: i32, y1: i32) -> Self {
+        let left = x0.min(x1).max(0) as u32;
+        let top = y0.min(y1).max(0) as u32;
+        let right = x0.max(x1).max(0) as u32;
+        let bottom = y0.max(y1).max(0) as u32;
+
+        Self {
+            x: left,
+            y: top,
+            width: right.saturating_sub(left).max(1),
+            height: bottom.saturating_sub(top).max(1),
+        }
+    }
+
+    /// Checks if a 2D point lies inside this rectangle.
+    pub fn contains(&self, px: i32, py: i32) -> bool {
+        if px < 0 || py < 0 {
+            return false;
+        }
+        let px = px as u32;
+        let py = py as u32;
+        px >= self.x && px < (self.x + self.width) && py >= self.y && py < (self.y + self.height)
+    }
 }
 
 /// Applies a mosaic pixelation effect over the target rectangle.
