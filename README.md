@@ -132,8 +132,11 @@ cargo run
 - [x] Directional arrows, rectangles, and translucent highlighters.
 - [x] Full-page continuous scroll stitcher engine (NCC matching).
 - [x] Zero-copy OS clipboard export.
-- [ ] System tray integration with customizable global hotkeys (`global-hotkey`).
-- [ ] Slint / WebGL floating overlay UI matching Lightshot's toolbar ergonomics.
+- [x] Interactive fullscreen overlay with 8-point resize handles and dimension badge.
+- [x] Lightshot-style ergonomic Dual Dock toolbars (Right drawing bar & Bottom action bar).
+- [x] Precision 8x Loupe magnifier with real-time HEX/RGB color picker.
+- [x] Frameless floating "Pin to Desktop" (Always-on-Top reference window).
+- [ ] System tray daemon with global hotkeys (`PrintScreen` / `Ctrl+Shift+X`).
 - [ ] Pluggable cloud storage backend (S3, Cloudflare R2, Imgur, custom webhook).
 
 ---
