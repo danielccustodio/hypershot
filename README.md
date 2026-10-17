@@ -1,193 +1,176 @@
-# ⚡ HyperShot
+<p align="center">
+  <img src="assets/hypershot.svg" width="96" alt="Ícone do HyperShot">
+</p>
 
-<div align="center">
+<h1 align="center">HyperShot</h1>
 
-**The Blazing-Fast, Cross-Platform Screenshot & Annotation Powerhouse.**  
-*Combines the ergonomic sub-50ms speed of Lightshot, the rich annotation toolkit of Flameshot, and seamless Full-Page Scrolling Capture.*
+<p align="center">
+  <strong>Uma ferramenta aberta de captura de tela para Windows, feita em Rust.</strong>
+</p>
 
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
-[![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+<p align="center">
+  Se você consegue usar <code>PrintScreen</code>, já sabe começar: selecione uma área, faça anotações e copie ou salve a imagem.
+</p>
 
-[English](#english) • [Português](#português) • [Architecture](#architecture) • [Roadmap](#roadmap)
+<p align="center">
+  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-0d9488.svg" alt="Licença: MIT ou Apache-2.0"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-2021-ed5a22?logo=rust&logoColor=white" alt="Rust 2021"></a>
+  <a href="https://github.com/danielccustodio/hypershot/actions/workflows/ci.yml"><img src="https://github.com/danielccustodio/hypershot/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
-</div>
+<p align="center">
+  <a href="#começar-agora">Começar agora</a> · <a href="#como-usar">Como usar</a> · <a href="#para-quem-quer-contribuir">Contribuir</a> · <a href="#english-summary">Em inglês</a>
+</p>
 
----
+> [!WARNING]
+> **Status honesto:** HyperShot está em desenvolvimento. A experiência completa de captura — bandeja do sistema, atalhos globais e sobreposição de seleção — está implementada para **Windows**. O projeto usa componentes multiplataforma para captura e inclui automações de empacotamento para Linux e macOS, mas a interface nativa desses sistemas ainda não está pronta para uso.
 
-<a name="english"></a>
-## 🌟 Why HyperShot?
+## O que é isto?
 
-For years, developers, designers, and power users have been caught between two screenshot tools:
-1. **Lightshot**: Instantaneous trigger (< 50ms) and intuitive dual-toolbar selection, but lacks vital privacy tools (no blur/pixelate), has no step numbering, and relies on insecure public links.
-2. **Flameshot**: Powerful annotations (pixelate, sequential counter, desktop pinning), but heavy cold-start footprint on Windows (~100MB+ Qt runtime) and no scrolling capture.
+HyperShot é um aplicativo para transformar uma parte da sua tela em uma imagem pronta para compartilhar. Ele foi criado em Rust e o código está aberto para qualquer pessoa estudar, usar, melhorar e redistribuir nos termos da licença.
 
-**HyperShot solves this once and for all:**
-* 🚀 **Zero-GC Pure Rust Engine**: Native GPU frame capture (DirectX 11 DXGI on Windows, ScreenCaptureKit on macOS, PipeWire/X11 on Linux) with sub-15ms trigger latency.
-* 📜 **Full-Page Scrolling Capture**: Automatically captures and stitches long documents, web pages, and chats without requiring browser extensions.
-* 🛡️ **Privacy by Design**: One-click **Pixelate** and **Gaussian Blur** to instantly redact passwords, tokens, API keys, and private data.
-* 🔢 **Auto-Step Counter**: Click-to-add sequential step badges (`①`, `②`, `③`) for bug reports and tutorials.
-* 📌 **Pin to Desktop**: Keep critical references floating seamlessly above your workspace.
-* 📋 **Zero-Copy Clipboard**: Instant paste into WhatsApp, Slack, Teams, Discord, or Notion.
+Em linguagem simples: pressione um atalho, arraste o mouse sobre o que quer recortar, desenhe se quiser e então copie, salve ou fixe a imagem na tela.
 
----
+## O que já funciona
 
-## 📊 Feature Comparison Matrix
+| Você quer… | O HyperShot faz… |
+| --- | --- |
+| Recortar uma área da tela | Abre uma sobreposição para selecionar a região com o mouse. |
+| Marcar algo importante | Disponibiliza caneta, linha, seta, retângulo, marca-texto e marcadores numerados. |
+| Esconder uma informação | Aplica pixelização à região escolhida. |
+| Mostrar um passo a passo | Adiciona marcadores numerados sequenciais. |
+| Copiar e colar em outra conversa | Copia a captura para a área de transferência do sistema. |
+| Guardar como arquivo | Abre a janela para salvar em PNG, JPEG ou WebP. |
+| Manter uma referência visível | Fixa o recorte em uma janela sempre visível. |
+| Capturar uma área longa | Inicia o modo de rolagem, que junta os quadros capturados enquanto você rola. |
+| Capturar sem abrir o terminal toda vez | Mantém um ícone na bandeja do Windows e registra atalhos globais. |
 
-| Feature | Lightshot ⚡ | Flameshot 🎨 | **HyperShot** 🚀 |
-| :--- | :---: | :---: | :---: |
-| **Engine / Architecture** | Delphi / Win32 | C++ / Qt6 | **Rust (Zero-GC, Native GPU)** |
-| **Trigger Latency** | ~20 ms | ~250 - 400 ms | **< 15 ms (DirectX / Metal / Wayland)** |
-| **Memory Footprint** | ~30 MB | ~110 MB | **~18 - 25 MB** |
-| **Selection Toolbars** | Floating L-Dock (Right & Bottom) | Radial / Custom Bar | **Ergonomic L-Dock (Lightshot-style)** |
-| **Pixelate & Blur (Redaction)** | ❌ None | ✅ Blur & Pixelate | ✅ **Multi-level Mosaic & Blur** |
-| **Step Sequence Counter** | ❌ None | ✅ Step Circles | ✅ **Auto-increment Badges (`① ② ③`)** |
-| **Full-Page Scroll Capture** | ❌ None | ❌ None | ✅ **Continuous NCC Stitching** |
-| **Pin to Desktop (Always-on-Top)**| ❌ None | ✅ Yes | ✅ **Frameless Floating Canvas** |
-| **Color Picker & Magnifier** | Basic | Advanced | ✅ **8x Loupe with HEX / RGB copy** |
-| **Platforms** | Windows, macOS (legacy) | Linux, Windows, macOS | ✅ **Windows, macOS, Linux** |
-| **Open Source License** | ❌ Proprietary | GPLv3 | ✅ **Dual MIT / Apache-2.0** |
+As imagens são tratadas localmente. O código atual não inclui um serviço de upload ou sincronização em nuvem.
 
----
+## Começar agora
 
-<a name="architecture"></a>
-## 🏗️ Architecture
+### Opção A — executar pelo código-fonte (recomendado por enquanto)
 
-```mermaid
-flowchart TD
-    Trigger([Hotkey: PrintScreen / Cmd+Shift+4]) --> Engine[HyperShot Rust Core]
-    
-    subgraph Capture["Zero-Latency Capture Layer"]
-        W[Windows: DXGI Desktop Duplication / Win.Graphics]
-        M[macOS: ScreenCaptureKit / CoreGraphics]
-        L[Linux: Wayland PipeWire / X11 XShm]
-    end
-    
-    Engine --> Capture
-    Capture --> Frozen[High-Res Frame Buffer in GPU/RAM]
-    
-    Frozen --> Overlay[Interactive Selection Canvas]
-    Overlay --> DualToolbar["Ergonomic Dual Toolbar (VCEdit + VCScreenshot)"]
-    
-    subgraph Tools["Annotation & Processing Engine"]
-        F1[Pixelate & Box Blur]
-        F2[Step Sequence Badges ① ② ③]
-        F3[Directional Arrows & Highlighter]
-        F4[Continuous Scroll Stitcher]
-    end
-    
-    DualToolbar --> Tools
-    Tools --> Export[Export Pipeline]
-    
-    subgraph Out["Export Channels"]
-        E1[OS Clipboard: Zero-Copy Bitmap]
-        E2[File System: PNG / WebP / JPEG]
-        E3[Pin to Desktop: Floating Window]
-        E4[Configurable Cloud: S3 / Imgur / Webhook]
-    end
-    
-    Export --> Out
+Você precisa de um computador Windows, do [Git](https://git-scm.com/downloads) e do [Rust](https://rustup.rs/) instalados.
+
+1. Abra o **PowerShell**.
+2. Copie e cole estes comandos, um de cada vez:
+
+   ```powershell
+   git clone https://github.com/danielccustodio/hypershot.git
+   cd hypershot
+   cargo run --release
+   ```
+
+3. A tela será preparada para a primeira captura e o HyperShot continuará disponível na bandeja do sistema.
+
+Se o Git não estiver instalado, instale-o pelo [site oficial](https://git-scm.com/downloads). Se `cargo` não for reconhecido, instale o Rust pelo [rustup](https://rustup.rs/) e abra o PowerShell novamente.
+
+### Opção B — gerar um executável local
+
+Se você quer apenas o arquivo do aplicativo depois de compilar:
+
+```powershell
+cargo build --release
 ```
 
----
+O executável será criado em `target\release\hypershot.exe`.
 
-<a name="português"></a>
-## 🇧🇷 Português
+O repositório também contém scripts de empacotamento. Para criar um instalador e um pacote portátil do Windows localmente, é necessário ter o **Inno Setup 6** instalado:
 
-O **HyperShot** é uma ferramenta de captura de tela de código aberto desenvolvida em Rust, combinando o melhor do **Lightshot** e do **Flameshot** com recursos inovadores como a **captura de tela com rolagem (página inteira)**.
+```powershell
+powershell -ExecutionPolicy Bypass -File installer\windows\build_installer.ps1
+```
 
-### Destaques
-1. **Acionamento Instantâneo**: Dispara em menos de 15 milissegundos via DirectX 11 / Metal / PipeWire.
-2. **Barras Ergonômicas em L**: Duas barras coladas na borda da seleção (ferramentas de desenho à direita, ações na parte inferior).
-3. **Censura de Dados**: Ferramentas de **Pixelate** e **Blur** para ocultar senhas e dados confidenciais antes de compartilhar.
-4. **Passos Sequenciais**: Numeração automática (`①`, `②`, `③`) a cada clique.
-5. **Captura com Rolagem**: Costura contínua de páginas longas sem necessidade de extensão de navegador.
+## Como usar
 
----
+### Captura comum
 
----
+1. Com o HyperShot em execução, pressione `PrintScreen`.
+2. Se esse atalho estiver ocupado por outro programa, use `Ctrl` + `Shift` + `X`.
+3. Clique e arraste para selecionar a parte desejada da tela.
+4. Use a barra vertical para escolher uma ferramenta de desenho.
+5. Use a barra horizontal para copiar, salvar, fixar ou iniciar uma captura com rolagem.
 
-## 📦 Native Installers & Desktop Usage
+Atalhos úteis dentro da tela de seleção:
 
-O **HyperShot** funciona como um aplicativo desktop completo (sem janelas de terminal pretas), com suporte a inicialização automática com o sistema, ícone na bandeja do relógio e captura global pela tecla `PrintScreen`.
+| Atalho | Ação |
+| --- | --- |
+| `Esc` | Cancela a captura. |
+| `Ctrl` + `C` ou `Enter` | Copia o recorte para a área de transferência. |
+| `Ctrl` + `S` | Abre a janela para salvar o recorte. |
+| `Ctrl` + `Z` | Desfaz a última anotação. |
 
-### 🪟 Windows (Instalador Oficial)
-- **Instalador com Assistente**: Baixe e execute [`HyperShot-v0.1.0-Setup-x64.exe`](dist/HyperShot-v0.1.0-Setup-x64.exe).
-  - Inclui atalhos na Área de Trabalho e Menu Iniciar.
-  - Opção para **Iniciar com o Windows** automaticamente em segundo plano.
-  - Desinstalador limpo no Painel de Controle / Configurações do Windows.
-- **Versão Portátil**: [`HyperShot-v0.1.0-Windows-x64-Portable.zip`](dist/HyperShot-v0.1.0-Windows-x64-Portable.zip) (basta descompactar e usar).
-- **Compilar o instalador localmente**:
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File installer/windows/build_installer.ps1
-  ```
+### Captura com rolagem
 
-### 🐧 Linux (Debian / Ubuntu / Mint)
-- **Pacote `.deb`**:
-  ```bash
-  sudo dpkg -i dist/hypershot_0.1.0_amd64.deb
-  ```
-- **Compilar pacote `.deb`**:
-  ```bash
-  chmod +x installer/linux/build_deb.sh
-  ./installer/linux/build_deb.sh
-  ```
-- Inclui arquivo `.desktop` para abrir pelo menu de aplicativos e inicialização pelo ambiente gráfico.
+1. Selecione a área que deseja capturar.
+2. Clique na ação de rolagem na barra horizontal.
+3. Role a página ou conversa devagar, mantendo a mesma área visível.
+4. Pressione `Enter` quando terminar e salve ou copie o resultado.
 
-### 🍎 macOS
-- **Pacote `.dmg`**:
-  - Abra o arquivo `HyperShot-v0.1.0-macOS.dmg` e arraste para a pasta `Applications`.
-- **Compilar pacote `.dmg`**:
-  ```bash
-  chmod +x installer/macos/build_dmg.sh
-  ./installer/macos/build_dmg.sh
-  ```
+Esse recurso depende de haver sobreposição visual suficiente entre os quadros. Em páginas com animações, vídeo ou mudanças muito rápidas, o encaixe pode falhar.
 
-### 🖱️ Como Usar no Dia a Dia (Sem Terminal)
-1. **Pela Tecla de Atalho**: Pressione `PrintScreen` ou `Ctrl + Shift + X` a qualquer momento para congelar a tela e desenhar.
-2. **Pelo Ícone da Área de Trabalho**: Ao clicar no ícone do HyperShot, se ele já estiver em execução na bandeja, ele disparará a captura imediatamente. Se ainda não estiver aberto, ele inicializa a bandeja e já abre o recorte para você.
-3. **Pela Bandeja do Relógio (Tray Icon)**:
-   - Clique com o botão esquerdo para disparar uma captura instantânea.
-   - Clique com o botão direito para abrir a pasta de capturas, editar o arquivo de configurações (`config.json`) ou sair do aplicativo.
+### Preferências
 
----
+No Windows, clique com o botão direito no ícone do HyperShot na bandeja do sistema e escolha **Editar Preferências**. O arquivo é salvo em:
 
-## 🚀 Build from source
+```text
+%APPDATA%\HyperShot\config.json
+```
 
-```bash
-# Clone the repository
-git clone https://github.com/danielcustodio/hypershot.git
+Ele guarda, entre outras preferências, a pasta sugerida para salvar, formato padrão, atalhos, cor e espessura do traço. A configuração é criada automaticamente na primeira execução.
+
+## Testar antes de alterar
+
+Para conferir se o projeto continua saudável na sua máquina:
+
+```powershell
+cargo test --all-targets
+```
+
+Para executar uma demonstração que captura a tela primária, aplica algumas anotações e grava `hypershot_demo.png` na pasta atual:
+
+```powershell
+cargo run --release -- --demo
+```
+
+## Para quem quer contribuir
+
+Ajuda é bem-vinda — inclusive de quem está começando. Alguns bons pontos de entrada são melhorar a documentação, testar comportamentos no Windows, relatar falhas de captura, escrever testes e ajudar a levar a interface nativa para Linux e macOS.
+
+Antes de abrir uma contribuição:
+
+1. Leia o [guia de contribuição](CONTRIBUTING.md).
+2. Crie uma branch para uma mudança pequena e clara.
+3. Rode `cargo test --all-targets`.
+4. Explique no pull request o que mudou e como você testou.
+
+Por favor, não inclua senhas, tokens, chaves de API ou capturas contendo dados pessoais em issues, commits ou pull requests.
+
+## Estrutura do projeto
+
+| Pasta ou arquivo | Para que serve |
+| --- | --- |
+| `src/core/` | Captura, filtros de imagem, anotações, área de transferência, configuração e união de quadros. |
+| `src/ui/` | Sobreposição de seleção, barras de ferramentas, janela fixada e integração com a bandeja do Windows. |
+| `assets/` | Ícones do aplicativo. |
+| `installer/` | Scripts e arquivos de empacotamento para Windows, Linux e macOS. |
+| `.github/workflows/` | Automação de testes e de builds de distribuição. |
+
+## Licença
+
+HyperShot é distribuído sob **MIT ou Apache License 2.0**, a seu critério. Leia [LICENSE-MIT](LICENSE-MIT) e [LICENSE-APACHE](LICENSE-APACHE) para os textos completos.
+
+## English summary
+
+HyperShot is an open-source Rust screenshot tool. Its complete end-user experience is currently implemented for **Windows**: system-tray integration, global hotkeys, a region-selection overlay, annotations, pixelation, clipboard/file export, desktop pinning and scroll stitching. Linux and macOS packaging scaffolding exists, but their native UI is not ready for end users yet.
+
+To build it on Windows:
+
+```powershell
+git clone https://github.com/danielccustodio/hypershot.git
 cd hypershot
-
-# Run unit tests
-cargo test
-
-# Launch HyperShot
-cargo run
+cargo run --release
 ```
 
----
-
-## 🗺️ Roadmap
-
-- [x] High-speed multi-monitor screen capture (DXGI / ScreenCaptureKit / PipeWire / X11).
-- [x] Privacy filter pipelines (Mosaic Pixelate and Box Blur).
-- [x] Step counter sequence badges (`①`, `②`, `③`).
-- [x] Directional arrows, rectangles, and translucent highlighters.
-- [x] Full-page continuous scroll stitcher engine (NCC matching).
-- [x] Zero-copy OS clipboard export.
-- [x] Interactive fullscreen overlay with 8-point resize handles and dimension badge.
-- [x] Lightshot-style ergonomic Dual Dock toolbars (Right drawing bar & Bottom action bar).
-- [x] Precision 8x Loupe magnifier with real-time HEX/RGB color picker.
-- [x] Frameless floating "Pin to Desktop" (Always-on-Top reference window).
-- [x] System tray daemon with global hotkeys (`PrintScreen` / `Ctrl+Shift+X`).
-- [x] Persistent preferences (`config.json`) for custom save paths, export formats, and hotkeys.
-- [x] Interactive Scroll Capture trigger via mouse wheel continuous stitching.
-- [ ] Pluggable cloud storage backend (S3, Cloudflare R2, Imgur, custom webhook).
-
----
-
-## 📄 License
-
-HyperShot is distributed under the terms of both the **MIT License** and the **Apache License (Version 2.0)**. See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.
+See [CONTRIBUTING.md](CONTRIBUTING.md) to help improve the project.
