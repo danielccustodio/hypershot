@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::env;
 use std::time::Instant;
 use env_logger::Env;
@@ -12,21 +14,78 @@ use crate::core::{
     counter::CounterManager,
     filters::{pixelate, Rect},
 };
-use crate::ui::{pin_to_desktop, run_overlay_window, run_tray_daemon, CaptureOutcome};
+use crate::ui::{
+    find_and_signal_running_instance, run_tray_daemon,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // On Windows, attach to parent console if started from CMD or PowerShell
+    #[cfg(windows)]
+    unsafe {
+        let _ = windows::Win32::System::Console::AttachConsole(
+            windows::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        );
+    }
+
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args: Vec<String> = env::args().collect();
     let is_demo_mode = args.iter().any(|arg| arg == "--demo");
     let is_daemon_mode = args.iter().any(|arg| arg == "--daemon" || arg == "--tray");
+    let is_help_mode = args.iter().any(|arg| arg == "--help" || arg == "-h");
 
+    if is_help_mode {
+        println!("============================================================");
+        println!("  ⚡ HyperShot - Next-Gen Screenshot & Annotation Engine");
+        println!("  Speed of Lightshot + Power of Flameshot + Scroll Capture");
+        println!("============================================================\n");
+        println!("Usage: hypershot [OPTIONS]\n");
+        println!("Options:");
+        println!("  --daemon, --tray   Run silently in background system tray (Windows Startup)");
+        println!("  --demo             Run high-speed capture benchmark and save demo image");
+        println!("  --help, -h         Show this help information\n");
+        println!("Default Behavior:");
+        println!("  • If already running: Triggers screenshot overlay immediately");
+        println!("  • If not running: Starts background tray and triggers screenshot overlay");
+        println!("  • Global Hotkeys: [PrintScreen] or [Ctrl + Shift + X]\n");
+        return Ok(());
+    }
+
+    if is_demo_mode {
+        run_benchmark_demo()?;
+        return Ok(());
+    }
+
+    // 1. If another HyperShot instance (tray daemon) is already running:
+    // Notify the existing instance to trigger screenshot overlay immediately!
+    #[cfg(windows)]
+    {
+        if find_and_signal_running_instance() {
+            println!("⚡ Notified existing HyperShot instance to capture screen.");
+            return Ok(());
+        }
+    }
+
+    // 2. If launched with --daemon or --tray (e.g., Windows Autostart on boot):
+    if is_daemon_mode {
+        run_tray_daemon(false)?;
+        return Ok(());
+    }
+
+    // 3. Normal launch from Desktop or Start Menu:
+    // Starts background system tray daemon AND triggers screenshot overlay right away!
+    println!("⚡ Starting HyperShot with system tray and instant capture...");
+    run_tray_daemon(true)?;
+    Ok(())
+}
+
+/// Runs non-interactive validation demo and saves sample image
+fn run_benchmark_demo() -> Result<(), Box<dyn std::error::Error>> {
     println!("============================================================");
     println!("  ⚡ HyperShot - Next-Gen Screenshot & Annotation Engine");
     println!("  Speed of Lightshot + Power of Flameshot + Scroll Capture");
     println!("============================================================\n");
 
-    // 1. Enumerate displays
     let monitors = CaptureEngine::list_monitors()?;
     println!("🖥️  Connected Displays ({}):", monitors.len());
     for m in &monitors {
@@ -38,52 +97,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    if is_demo_mode {
-        run_benchmark_demo()?;
-        return Ok(());
-    }
-
-    if is_daemon_mode {
-        run_tray_daemon()?;
-        return Ok(());
-    }
-
-    // 2. Perform instant high-speed screen capture
-    print!("📸 Capturing desktop frame... ");
-    let t0 = Instant::now();
-    let screenshot = CaptureEngine::capture_primary()?;
-    let elapsed = t0.elapsed();
-    println!("OK! ({:.2} ms)", elapsed.as_secs_f64() * 1000.0);
-    println!("   Resolution: {}x{} pixels", screenshot.width(), screenshot.height());
-
-    println!("\n🎯 Launching HyperShot Interactive Overlay...");
-    println!("   • Click & Drag to select rectangle");
-    println!("   • Right Toolbar: Pen, Line, Arrow, Rect, Highlighter, Pixelate, Step Badges ①②③, Colors");
-    println!("   • Bottom Toolbar: Copy (Ctrl+C), Save (Ctrl+S), Pin to Desktop, Close (Esc)");
-    println!("   • Loupe & Color Picker: Active before selection\n");
-
-    // 3. Launch interactive overlay window
-    match run_overlay_window(screenshot)? {
-        CaptureOutcome::CopiedToClipboard => {
-            println!("📋 Selection copied directly to OS clipboard! Ready to paste (Ctrl+V).");
-        }
-        CaptureOutcome::SavedToFile(path) => {
-            println!("💾 Screenshot saved successfully to: {}", path);
-        }
-        CaptureOutcome::PinnedToDesktop(crop) => {
-            println!("📌 Pinned screenshot to desktop (Always on Top).");
-            let _ = pin_to_desktop(crop);
-        }
-        CaptureOutcome::Cancelled => {
-            println!("❌ Screenshot capture cancelled.");
-        }
-    }
-
-    Ok(())
-}
-
-/// Runs non-interactive validation demo and saves sample image
-fn run_benchmark_demo() -> Result<(), Box<dyn std::error::Error>> {
     print!("📸 Performing high-speed screen capture benchmark... ");
     let t0 = Instant::now();
     let mut screenshot = CaptureEngine::capture_primary()?;

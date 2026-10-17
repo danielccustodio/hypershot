@@ -4,7 +4,31 @@ use crate::ui::window::run_overlay_window;
 use crate::ui::overlay::CaptureOutcome;
 
 #[cfg(windows)]
-pub fn run_tray_daemon() -> Result<(), String> {
+pub const WM_TRIGGER_CAPTURE: u32 = windows::Win32::UI::WindowsAndMessaging::WM_USER + 102;
+
+#[cfg(windows)]
+pub fn find_and_signal_running_instance() -> bool {
+    use windows::core::w;
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW};
+
+    unsafe {
+        if let Ok(hwnd) = FindWindowW(w!("HyperShotDaemonClass"), None) {
+            if !hwnd.0.is_null() {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    WM_TRIGGER_CAPTURE,
+                    windows::Win32::Foundation::WPARAM(0),
+                    windows::Win32::Foundation::LPARAM(0),
+                );
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+pub fn run_tray_daemon(trigger_immediately: bool) -> Result<(), String> {
     use windows::core::w;
     use windows::Win32::Foundation::HINSTANCE;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -89,8 +113,11 @@ pub fn run_tray_daemon() -> Result<(), String> {
 
         println!("⚡ HyperShot Daemon is running in background!");
         println!("   • Press [PrintScreen] or [Ctrl + Shift + X] to capture");
-        println!("   • Check taskbar notification tray icon for menu");
-        println!("   • Press Ctrl+C in this terminal to exit daemon\n");
+        println!("   • Check taskbar notification tray icon for menu\n");
+
+        if trigger_immediately {
+            trigger_screenshot();
+        }
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
@@ -120,10 +147,12 @@ unsafe extern "system" fn daemon_wndproc(
 
     const WM_TRAYICON: u32 = WM_USER + 101;
     const MENU_CAPTURE: usize = 2001;
-    const MENU_EXIT: usize = 2003;
+    const MENU_FOLDER: usize = 2002;
+    const MENU_SETTINGS: usize = 2003;
+    const MENU_EXIT: usize = 2004;
 
     match msg {
-        WM_HOTKEY => {
+        WM_HOTKEY | WM_TRIGGER_CAPTURE => {
             trigger_screenshot();
             LRESULT(0)
         }
@@ -140,6 +169,9 @@ unsafe extern "system" fn daemon_wndproc(
                     let h_menu = CreatePopupMenu().unwrap_or_default();
                     let _ = AppendMenuW(h_menu, MF_STRING, MENU_CAPTURE, w!("⚡ Capturar Tela (PrintScreen)"));
                     let _ = AppendMenuW(h_menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
+                    let _ = AppendMenuW(h_menu, MF_STRING, MENU_FOLDER, w!("📁 Abrir Pasta de Capturas"));
+                    let _ = AppendMenuW(h_menu, MF_STRING, MENU_SETTINGS, w!("⚙️ Editar Preferências (config.json)"));
+                    let _ = AppendMenuW(h_menu, MF_SEPARATOR, 0, windows::core::PCWSTR::null());
                     let _ = AppendMenuW(h_menu, MF_STRING, MENU_EXIT, w!("❌ Sair do HyperShot"));
 
                     let _ = SetForegroundWindow(hwnd);
@@ -154,10 +186,21 @@ unsafe extern "system" fn daemon_wndproc(
                     );
                     let _ = DestroyMenu(h_menu);
 
-                    if cmd.0 as usize == MENU_CAPTURE {
-                        trigger_screenshot();
-                    } else if cmd.0 as usize == MENU_EXIT {
-                        let _ = DestroyWindow(hwnd);
+                    match cmd.0 as usize {
+                        MENU_CAPTURE => trigger_screenshot(),
+                        MENU_FOLDER => {
+                            let cfg = crate::core::config::AppConfig::load();
+                            let _ = std::process::Command::new("explorer").arg(&cfg.save_directory).spawn();
+                        }
+                        MENU_SETTINGS => {
+                            if let Some(path) = crate::core::config::AppConfig::config_path() {
+                                let _ = std::process::Command::new("notepad").arg(path).spawn();
+                            }
+                        }
+                        MENU_EXIT => {
+                            let _ = DestroyWindow(hwnd);
+                        }
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -194,6 +237,11 @@ fn trigger_screenshot() {
 }
 
 #[cfg(not(windows))]
-pub fn run_tray_daemon() -> Result<(), String> {
+pub fn run_tray_daemon(_trigger_immediately: bool) -> Result<(), String> {
     Err("Daemon currently implemented for Windows".to_string())
+}
+
+#[cfg(not(windows))]
+pub fn find_and_signal_running_instance() -> bool {
+    false
 }

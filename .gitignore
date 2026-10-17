@@ -23,5 +23,8 @@ Desktop.ini
 
 # Output demonstration files
 hypershot_demo.png
+
+# Distribution packages & installers
+/dist/
 demo_*.png
 test_*.png

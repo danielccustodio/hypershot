@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#facc15"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect x="16" y="16" width="224" height="224" rx="48" fill="url(#bgGrad)" stroke="#38bdf8" stroke-width="4" stroke-opacity="0.8"/>
+
+  <!-- Reticle Corner Brackets -->
+  <g stroke="#38bdf8" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M60 85 V60 H85"/>
+    <path d="M196 85 V60 H171"/>
+    <path d="M60 171 V196 H85"/>
+    <path d="M196 171 V196 H171"/>
+  </g>
+
+  <!-- Electric Bolt -->
+  <polygon points="140,65 95,130 125,130 115,190 165,120 135,120" fill="url(#boltGrad)" filter="url(#glow)"/>
+</svg>

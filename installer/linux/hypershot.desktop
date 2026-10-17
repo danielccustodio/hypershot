@@ -1,0 +1,24 @@
+[Desktop Entry]
+Name=HyperShot
+GenericName=Screenshot Tool
+GenericName[pt_BR]=Ferramenta de Captura de Tela
+Comment=Blazing-fast Screenshot & Annotation Tool
+Comment[pt_BR]=Ferramenta de Captura e Anotação Ultrarrápida com Costura Contínua
+Exec=hypershot %U
+Icon=hypershot
+Terminal=false
+Type=Application
+Categories=Utility;Graphics;Photography;
+Keywords=screenshot;capture;annotation;flameshot;lightshot;
+StartupNotify=true
+Actions=Capture;Daemon;
+
+[Desktop Action Capture]
+Name=Capture Area
+Name[pt_BR]=Capturar Área
+Exec=hypershot
+
+[Desktop Action Daemon]
+Name=Start in Background
+Name[pt_BR]=Iniciar em Segundo Plano
+Exec=hypershot --daemon

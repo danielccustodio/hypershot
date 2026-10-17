@@ -106,9 +106,54 @@ O **HyperShot** é uma ferramenta de captura de tela de código aberto desenvolv
 
 ---
 
-## 🚀 Quick Start
+---
 
-### Build from source
+## 📦 Native Installers & Desktop Usage
+
+O **HyperShot** funciona como um aplicativo desktop completo (sem janelas de terminal pretas), com suporte a inicialização automática com o sistema, ícone na bandeja do relógio e captura global pela tecla `PrintScreen`.
+
+### 🪟 Windows (Instalador Oficial)
+- **Instalador com Assistente**: Baixe e execute [`HyperShot-v0.1.0-Setup-x64.exe`](dist/HyperShot-v0.1.0-Setup-x64.exe).
+  - Inclui atalhos na Área de Trabalho e Menu Iniciar.
+  - Opção para **Iniciar com o Windows** automaticamente em segundo plano.
+  - Desinstalador limpo no Painel de Controle / Configurações do Windows.
+- **Versão Portátil**: [`HyperShot-v0.1.0-Windows-x64-Portable.zip`](dist/HyperShot-v0.1.0-Windows-x64-Portable.zip) (basta descompactar e usar).
+- **Compilar o instalador localmente**:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File installer/windows/build_installer.ps1
+  ```
+
+### 🐧 Linux (Debian / Ubuntu / Mint)
+- **Pacote `.deb`**:
+  ```bash
+  sudo dpkg -i dist/hypershot_0.1.0_amd64.deb
+  ```
+- **Compilar pacote `.deb`**:
+  ```bash
+  chmod +x installer/linux/build_deb.sh
+  ./installer/linux/build_deb.sh
+  ```
+- Inclui arquivo `.desktop` para abrir pelo menu de aplicativos e inicialização pelo ambiente gráfico.
+
+### 🍎 macOS
+- **Pacote `.dmg`**:
+  - Abra o arquivo `HyperShot-v0.1.0-macOS.dmg` e arraste para a pasta `Applications`.
+- **Compilar pacote `.dmg`**:
+  ```bash
+  chmod +x installer/macos/build_dmg.sh
+  ./installer/macos/build_dmg.sh
+  ```
+
+### 🖱️ Como Usar no Dia a Dia (Sem Terminal)
+1. **Pela Tecla de Atalho**: Pressione `PrintScreen` ou `Ctrl + Shift + X` a qualquer momento para congelar a tela e desenhar.
+2. **Pelo Ícone da Área de Trabalho**: Ao clicar no ícone do HyperShot, se ele já estiver em execução na bandeja, ele disparará a captura imediatamente. Se ainda não estiver aberto, ele inicializa a bandeja e já abre o recorte para você.
+3. **Pela Bandeja do Relógio (Tray Icon)**:
+   - Clique com o botão esquerdo para disparar uma captura instantânea.
+   - Clique com o botão direito para abrir a pasta de capturas, editar o arquivo de configurações (`config.json`) ou sair do aplicativo.
+
+---
+
+## 🚀 Build from source
 
 ```bash
 # Clone the repository

@@ -1,0 +1,120 @@
+name: Release Build & Multi-OS Installers
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Installer & Portable (.exe, .zip)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Generate Icon and Build Installer
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/generate_assets.ps1
+          powershell -ExecutionPolicy Bypass -File installer/windows/build_installer.ps1 -SkipBuild
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: dist/*
+
+  build-linux:
+    name: Build Linux Package (.deb, .tar.gz)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Build Debian (.deb) package
+        run: |
+          chmod +x installer/linux/build_deb.sh
+          ./installer/linux/build_deb.sh
+
+      - name: Create Linux tarball
+        run: |
+          mkdir -p dist/hypershot-linux-x64
+          cp target/release/hypershot dist/hypershot-linux-x64/
+          cp installer/linux/hypershot.desktop dist/hypershot-linux-x64/
+          cp assets/hypershot.svg dist/hypershot-linux-x64/
+          cp README.md LICENSE-MIT dist/hypershot-linux-x64/
+          tar -czvf dist/HyperShot-v0.1.0-Linux-x64.tar.gz -C dist hypershot-linux-x64
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: |
+            dist/*.deb
+            dist/*.tar.gz
+
+  build-macos:
+    name: Build macOS DMG (.dmg)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Build macOS DMG
+        run: |
+          chmod +x installer/macos/build_dmg.sh
+          ./installer/macos/build_dmg.sh
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: dist/*.dmg
+
+  publish-release:
+    name: Publish GitHub Release with Installers
+    needs: [build-windows, build-linux, build-macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-all/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
