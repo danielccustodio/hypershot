@@ -1,5 +1,4 @@
 use crate::core::filters::Rect;
-use image::{Rgba, RgbaImage};
 
 /// Available annotation tools in the vertical toolbar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +67,6 @@ impl ToolbarLayout {
             - TOOLBAR_SPACING
             + (TOOLBAR_PADDING * 2);
 
-        // Place to the right of selection; if offscreen, place inside right edge
         let v_x = if selection.x + selection.width + 6 + v_width <= screen_w {
             selection.x + selection.width + 6
         } else if selection.width >= v_width + 10 {
@@ -77,7 +75,6 @@ impl ToolbarLayout {
             selection.x.saturating_sub(v_width + 6)
         };
 
-        // Align top with selection top, clamped to screen bounds
         let v_y = selection.y.clamp(6, screen_h.saturating_sub(v_height + 6));
         let vertical_rect = Rect::new(v_x, v_y, v_width, v_height);
 
@@ -94,7 +91,6 @@ impl ToolbarLayout {
             - TOOLBAR_SPACING
             + (TOOLBAR_PADDING * 2);
 
-        // Place below selection; if offscreen, place inside bottom edge
         let h_y = if selection.y + selection.height + 6 + h_height <= screen_h {
             selection.y + selection.height + 6
         } else if selection.height >= h_height + 10 {
@@ -103,7 +99,6 @@ impl ToolbarLayout {
             selection.y.saturating_sub(h_height + 6)
         };
 
-        // Align right edge of horizontal toolbar with right edge of selection
         let right_anchor = selection.x + selection.width;
         let h_x = if right_anchor >= h_width {
             (right_anchor - h_width).min(screen_w.saturating_sub(h_width + 6))
@@ -127,7 +122,6 @@ impl ToolbarLayout {
         }
     }
 
-    /// Hit-tests a coordinate against tool buttons.
     pub fn hit_test_tool(&self, px: i32, py: i32) -> Option<ToolType> {
         for (tool, rect) in &self.tools {
             if rect.contains(px, py) {
@@ -137,7 +131,6 @@ impl ToolbarLayout {
         None
     }
 
-    /// Hit-tests a coordinate against action buttons.
     pub fn hit_test_action(&self, px: i32, py: i32) -> Option<ActionType> {
         for (action, rect) in &self.actions {
             if rect.contains(px, py) {
@@ -147,280 +140,244 @@ impl ToolbarLayout {
         None
     }
 
-    /// Checks if a point lies anywhere inside either toolbar panel.
-    pub fn contains_point(&self, px: i32, py: i32) -> bool {
-        self.vertical_rect.contains(px, py) || self.horizontal_rect.contains(px, py)
-    }
-
-    /// Renders both toolbars directly onto the target RGBA frame buffer.
-    pub fn render(
+    /// Renders both toolbars directly onto the raw 32-bit screen buffer (Zero allocations).
+    pub fn render_to_buffer(
         &self,
-        target: &mut RgbaImage,
+        buffer: &mut [u32],
+        width: u32,
+        height: u32,
         active_tool: ToolType,
         hover_tool: Option<ToolType>,
         hover_action: Option<ActionType>,
-        active_color: [u8; 4],
+        active_color: u32,
     ) {
-        // Tokyo Night Dark Palette
-        let panel_bg = Rgba([26, 27, 38, 245]);
-        let panel_border = Rgba([65, 72, 104, 255]);
-        let btn_hover_bg = Rgba([41, 46, 66, 255]);
-        let btn_active_bg = Rgba([59, 130, 246, 255]); // Vibrant blue
-        let icon_color = Rgba([224, 230, 245, 255]);
-        let icon_muted = Rgba([154, 165, 206, 255]);
+        let panel_bg: u32 = 0xFF1A1B26;
+        let panel_border: u32 = 0xFF414868;
+        let btn_hover_bg: u32 = 0xFF292E42;
+        let btn_active_bg: u32 = 0xFF3B82F6; // Vibrant blue
+        let icon_color: u32 = 0xFFE0E6F5;
+        let icon_muted: u32 = 0xFF9AA5CE;
 
-        // Draw Vertical Panel
-        draw_rounded_rect(target, self.vertical_rect, panel_bg, panel_border, 6);
+        // 1. Draw Vertical Panel
+        draw_rect_to_buffer(buffer, width, height, self.vertical_rect, panel_bg, panel_border);
         for (tool, rect) in &self.tools {
             let is_active = *tool == active_tool;
             let is_hover = hover_tool == Some(*tool);
 
             if is_active {
-                draw_rounded_rect(target, *rect, btn_active_bg, btn_active_bg, 4);
+                draw_rect_to_buffer(buffer, width, height, *rect, btn_active_bg, btn_active_bg);
             } else if is_hover {
-                draw_rounded_rect(target, *rect, btn_hover_bg, panel_border, 4);
+                draw_rect_to_buffer(buffer, width, height, *rect, btn_hover_bg, panel_border);
             }
 
-            render_tool_icon(target, *tool, *rect, if is_active { Rgba([255, 255, 255, 255]) } else if is_hover { icon_color } else { icon_muted }, active_color);
+            let color = if is_active { 0xFFFFFFFF } else if is_hover { icon_color } else { icon_muted };
+            render_tool_icon(buffer, width, height, *tool, *rect, color, active_color);
         }
 
-        // Draw Horizontal Panel
-        draw_rounded_rect(target, self.horizontal_rect, panel_bg, panel_border, 6);
+        // 2. Draw Horizontal Panel
+        draw_rect_to_buffer(buffer, width, height, self.horizontal_rect, panel_bg, panel_border);
         for (action, rect) in &self.actions {
             let is_hover = hover_action == Some(*action);
 
             if is_hover {
                 let hover_color = match action {
-                    ActionType::Close => Rgba([239, 68, 68, 220]), // Red
-                    ActionType::Copy => Rgba([16, 185, 129, 220]),  // Emerald Green
+                    ActionType::Close => 0xFFEF4444, // Red
+                    ActionType::Copy => 0xFF10B981,  // Emerald
                     _ => btn_hover_bg,
                 };
-                draw_rounded_rect(target, *rect, hover_color, panel_border, 4);
+                draw_rect_to_buffer(buffer, width, height, *rect, hover_color, panel_border);
             }
 
-            render_action_icon(target, *action, *rect, if is_hover { Rgba([255, 255, 255, 255]) } else { icon_color });
+            render_action_icon(buffer, width, height, *action, *rect, if is_hover { 0xFFFFFFFF } else { icon_color });
         }
     }
 }
 
-/// Helper to render a rounded rectangle with 1px border.
-fn draw_rounded_rect(image: &mut RgbaImage, rect: Rect, fill: Rgba<u8>, border: Rgba<u8>, _radius: u32) {
-    let w = image.width();
-    let h = image.height();
+fn draw_rect_to_buffer(buffer: &mut [u32], stride: u32, max_h: u32, rect: Rect, fill: u32, border: u32) {
+    let x_end = (rect.x + rect.width).min(stride);
+    let y_end = (rect.y + rect.height).min(max_h);
 
-    let clamped = match rect.clamp_to_image(w, h) {
-        Some(r) => r,
-        None => return,
-    };
-
-    for y in clamped.y..(clamped.y + clamped.height) {
-        for x in clamped.x..(clamped.x + clamped.width) {
-            let is_border = x == clamped.x
-                || x == (clamped.x + clamped.width - 1)
-                || y == clamped.y
-                || y == (clamped.y + clamped.height - 1);
-
-            let color = if is_border { border } else { fill };
-            image.put_pixel(x, y, color);
+    for y in rect.y..y_end {
+        let row_offset = (y * stride) as usize;
+        for x in rect.x..x_end {
+            let is_border = x == rect.x || x == x_end - 1 || y == rect.y || y == y_end - 1;
+            buffer[row_offset + x as usize] = if is_border { border } else { fill };
         }
     }
 }
 
-/// Procedural pixel-art rendering of tools icons (no font/asset dependencies).
-fn render_tool_icon(image: &mut RgbaImage, tool: ToolType, rect: Rect, color: Rgba<u8>, active_color: [u8; 4]) {
+fn render_tool_icon(buffer: &mut [u32], stride: u32, max_h: u32, tool: ToolType, rect: Rect, color: u32, active_color: u32) {
     let cx = rect.x as i32 + (rect.width as i32 / 2);
     let cy = rect.y as i32 + (rect.height as i32 / 2);
 
     match tool {
         ToolType::Pen => {
-            // Draw diagonal pencil shape
             for i in -6..=6 {
-                put_pixel_safe(image, cx + i, cy - i, color);
-                put_pixel_safe(image, cx + i + 1, cy - i, color);
+                put_pixel(buffer, stride, max_h, cx + i, cy - i, color);
+                put_pixel(buffer, stride, max_h, cx + i + 1, cy - i, color);
             }
-            put_pixel_safe(image, cx - 6, cy + 6, color);
+            put_pixel(buffer, stride, max_h, cx - 6, cy + 6, color);
         }
         ToolType::Line => {
-            // Horizontal line
             for dx in -7..=7 {
-                put_pixel_safe(image, cx + dx, cy, color);
-                put_pixel_safe(image, cx + dx, cy + 1, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 1, color);
             }
         }
         ToolType::Arrow => {
-            // Arrow pointing top-right
             for i in -6..=6 {
-                put_pixel_safe(image, cx + i, cy - i, color);
+                put_pixel(buffer, stride, max_h, cx + i, cy - i, color);
             }
-            // Arrow head
             for i in 0..=5 {
-                put_pixel_safe(image, cx + 6 - i, cy - 6, color);
-                put_pixel_safe(image, cx + 6, cy - 6 + i, color);
+                put_pixel(buffer, stride, max_h, cx + 6 - i, cy - 6, color);
+                put_pixel(buffer, stride, max_h, cx + 6, cy - 6 + i, color);
             }
         }
         ToolType::Rectangle => {
-            // Square frame
             for dx in -6..=6 {
-                put_pixel_safe(image, cx + dx, cy - 6, color);
-                put_pixel_safe(image, cx + dx, cy + 6, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 6, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 6, color);
             }
             for dy in -6..=6 {
-                put_pixel_safe(image, cx - 6, cy + dy, color);
-                put_pixel_safe(image, cx + 6, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx - 6, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 6, cy + dy, color);
             }
         }
         ToolType::Highlighter => {
-            // Angled broad chisel marker
             for dx in -5..=5 {
                 for dy in -3..=3 {
-                    put_pixel_safe(image, cx + dx, cy + dy, color);
+                    put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
                 }
             }
         }
         ToolType::Pixelate => {
-            // 3x3 checkerboard mosaic pattern
             for dy in -6..=6 {
                 for dx in -6..=6 {
                     if ((dx + 6) / 4 + (dy + 6) / 4) % 2 == 0 {
-                        put_pixel_safe(image, cx + dx, cy + dy, color);
+                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
                     }
                 }
             }
         }
         ToolType::StepBadge => {
-            // Circle with step dot in the center
             for dy in -6..=6 {
                 for dx in -6..=6 {
                     let dist_sq = dx * dx + dy * dy;
                     if dist_sq >= 25 && dist_sq <= 40 {
-                        put_pixel_safe(image, cx + dx, cy + dy, color);
+                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
                     }
                 }
             }
-            // Number 1 stem
             for dy in -3..=3 {
-                put_pixel_safe(image, cx, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx, cy + dy, color);
             }
-            put_pixel_safe(image, cx - 1, cy - 2, color);
+            put_pixel(buffer, stride, max_h, cx - 1, cy - 2, color);
         }
         ToolType::ColorPicker => {
-            // Swatch showing current active color
-            let swatch_color = Rgba(active_color);
-            for dy in -6..=6 {
-                for dx in -6..=6 {
-                    put_pixel_safe(image, cx + dx, cy + dy, swatch_color);
+            for dy in -5..=5 {
+                for dx in -5..=5 {
+                    put_pixel(buffer, stride, max_h, cx + dx, cy + dy, active_color);
                 }
             }
-            // White border around swatch
-            for dx in -7..=7 {
-                put_pixel_safe(image, cx + dx, cy - 7, color);
-                put_pixel_safe(image, cx + dx, cy + 7, color);
+            for dx in -6..=6 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 6, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 6, color);
             }
-            for dy in -7..=7 {
-                put_pixel_safe(image, cx - 7, cy + dy, color);
-                put_pixel_safe(image, cx + 7, cy + dy, color);
+            for dy in -6..=6 {
+                put_pixel(buffer, stride, max_h, cx - 6, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 6, cy + dy, color);
             }
         }
         ToolType::Undo => {
-            // Circular arc back-arrow
             for dx in -5..=5 {
-                put_pixel_safe(image, cx + dx, cy - 4, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 4, color);
             }
             for dy in -4..=2 {
-                put_pixel_safe(image, cx + 5, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 5, cy + dy, color);
             }
-            // Arrow tip on left
             for i in 0..=3 {
-                put_pixel_safe(image, cx - 5 + i, cy - 4 - i, color);
-                put_pixel_safe(image, cx - 5 + i, cy - 4 + i, color);
+                put_pixel(buffer, stride, max_h, cx - 5 + i, cy - 4 - i, color);
+                put_pixel(buffer, stride, max_h, cx - 5 + i, cy - 4 + i, color);
             }
         }
         _ => {}
     }
 }
 
-/// Procedural pixel-art rendering of action buttons.
-fn render_action_icon(image: &mut RgbaImage, action: ActionType, rect: Rect, color: Rgba<u8>) {
+fn render_action_icon(buffer: &mut [u32], stride: u32, max_h: u32, action: ActionType, rect: Rect, color: u32) {
     let cx = rect.x as i32 + (rect.width as i32 / 2);
     let cy = rect.y as i32 + (rect.height as i32 / 2);
 
     match action {
         ActionType::Close => {
-            // 'X' icon
             for i in -5..=5 {
-                put_pixel_safe(image, cx + i, cy + i, color);
-                put_pixel_safe(image, cx + i + 1, cy + i, color);
-                put_pixel_safe(image, cx + i, cy - i, color);
-                put_pixel_safe(image, cx + i + 1, cy - i, color);
+                put_pixel(buffer, stride, max_h, cx + i, cy + i, color);
+                put_pixel(buffer, stride, max_h, cx + i + 1, cy + i, color);
+                put_pixel(buffer, stride, max_h, cx + i, cy - i, color);
+                put_pixel(buffer, stride, max_h, cx + i + 1, cy - i, color);
             }
         }
         ActionType::Save => {
-            // Diskette icon
             for dx in -6..=6 {
                 for dy in -6..=6 {
                     let is_outer = dx == -6 || dx == 6 || dy == -6 || dy == 6;
                     let is_cutout = (dx >= -3 && dx <= 3 && dy >= -5 && dy <= -2)
                         || (dx >= -4 && dx <= 4 && dy >= 1 && dy <= 5);
                     if is_outer || is_cutout {
-                        put_pixel_safe(image, cx + dx, cy + dy, color);
+                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
                     }
                 }
             }
         }
         ActionType::Copy => {
-            // Two overlapping clipboards
-            // Back clipboard
             for dx in -3..=5 {
-                put_pixel_safe(image, cx + dx, cy - 5, color);
-                put_pixel_safe(image, cx + dx, cy + 3, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 5, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 3, color);
             }
             for dy in -5..=3 {
-                put_pixel_safe(image, cx - 3, cy + dy, color);
-                put_pixel_safe(image, cx + 5, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx - 3, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 5, cy + dy, color);
             }
-            // Front clipboard
             for dx in -5..=3 {
-                put_pixel_safe(image, cx + dx, cy - 3, color);
-                put_pixel_safe(image, cx + dx, cy + 5, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 3, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 5, color);
             }
             for dy in -3..=5 {
-                put_pixel_safe(image, cx - 5, cy + dy, color);
-                put_pixel_safe(image, cx + 3, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx - 5, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 3, cy + dy, color);
             }
         }
         ActionType::Pin => {
-            // Pushpin icon
             for dy in -6..=-2 {
-                put_pixel_safe(image, cx, cy + dy, color);
-                put_pixel_safe(image, cx - 1, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx - 1, cy + dy, color);
             }
             for dx in -4..=3 {
-                put_pixel_safe(image, cx + dx, cy - 2, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 2, color);
             }
             for dy in -1..=5 {
-                put_pixel_safe(image, cx, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx, cy + dy, color);
             }
         }
         ActionType::Scroll => {
-            // Scroll icon (vertical document with downward arrows)
             for dy in -6..=6 {
-                put_pixel_safe(image, cx - 4, cy + dy, color);
-                put_pixel_safe(image, cx + 4, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx - 4, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 4, cy + dy, color);
             }
-            // Downward arrow
             for dy in -2..=3 {
-                put_pixel_safe(image, cx, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx, cy + dy, color);
             }
-            put_pixel_safe(image, cx - 2, cy + 1, color);
-            put_pixel_safe(image, cx - 1, cy + 2, color);
-            put_pixel_safe(image, cx + 1, cy + 2, color);
-            put_pixel_safe(image, cx + 2, cy + 1, color);
+            put_pixel(buffer, stride, max_h, cx - 2, cy + 1, color);
+            put_pixel(buffer, stride, max_h, cx - 1, cy + 2, color);
+            put_pixel(buffer, stride, max_h, cx + 1, cy + 2, color);
+            put_pixel(buffer, stride, max_h, cx + 2, cy + 1, color);
         }
     }
 }
 
-fn put_pixel_safe(image: &mut RgbaImage, x: i32, y: i32, color: Rgba<u8>) {
-    if x >= 0 && y >= 0 && (x as u32) < image.width() && (y as u32) < image.height() {
-        image.put_pixel(x as u32, y as u32, color);
+#[inline(always)]
+fn put_pixel(buffer: &mut [u32], stride: u32, max_h: u32, x: i32, y: i32, color: u32) {
+    if x >= 0 && y >= 0 && (x as u32) < stride && (y as u32) < max_h {
+        buffer[(y as u32 * stride + x as u32) as usize] = color;
     }
 }

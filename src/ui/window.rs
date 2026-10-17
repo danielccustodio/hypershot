@@ -44,7 +44,6 @@ pub fn run_overlay_window(screenshot: RgbaImage) -> Result<CaptureOutcome, Strin
 
         let _ = RegisterClassExW(&wnd_class);
 
-        // Multi-monitor virtual screen coverage
         let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
         let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
@@ -103,8 +102,8 @@ unsafe extern "system" fn overlay_wndproc(
 
             let mut session_guard = SESSION_PTR.lock().unwrap();
             if let Some(session) = session_guard.as_mut() {
-                let frame = session.compose_frame();
-                let (w, h) = (frame.width(), frame.height());
+                let (w, h) = (session.width, session.height);
+                let pixels = session.render_frame();
 
                 let bi = BITMAPINFO {
                     bmiHeader: BITMAPINFOHEADER {
@@ -119,11 +118,6 @@ unsafe extern "system" fn overlay_wndproc(
                     ..Default::default()
                 };
 
-                let mut bgra = frame.into_raw();
-                for chunk in bgra.chunks_exact_mut(4) {
-                    chunk.swap(0, 2);
-                }
-
                 let _ = SetDIBitsToDevice(
                     hdc,
                     0,
@@ -134,7 +128,7 @@ unsafe extern "system" fn overlay_wndproc(
                     0,
                     0,
                     h,
-                    bgra.as_ptr() as *const _,
+                    pixels.as_ptr() as *const _,
                     &bi,
                     DIB_RGB_COLORS,
                 );
