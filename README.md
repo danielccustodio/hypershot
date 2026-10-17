@@ -136,7 +136,7 @@ cargo run
 - [x] Lightshot-style ergonomic Dual Dock toolbars (Right drawing bar & Bottom action bar).
 - [x] Precision 8x Loupe magnifier with real-time HEX/RGB color picker.
 - [x] Frameless floating "Pin to Desktop" (Always-on-Top reference window).
-- [ ] System tray daemon with global hotkeys (`PrintScreen` / `Ctrl+Shift+X`).
+- [x] System tray daemon with global hotkeys (`PrintScreen` / `Ctrl+Shift+X`).
 - [ ] Pluggable cloud storage backend (S3, Cloudflare R2, Imgur, custom webhook).
 
 ---

@@ -12,13 +12,14 @@ use crate::core::{
     counter::CounterManager,
     filters::{pixelate, Rect},
 };
-use crate::ui::{pin_to_desktop, run_overlay_window, CaptureOutcome};
+use crate::ui::{pin_to_desktop, run_overlay_window, run_tray_daemon, CaptureOutcome};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
     let args: Vec<String> = env::args().collect();
     let is_demo_mode = args.iter().any(|arg| arg == "--demo");
+    let is_daemon_mode = args.iter().any(|arg| arg == "--daemon" || arg == "--tray");
 
     println!("============================================================");
     println!("  ⚡ HyperShot - Next-Gen Screenshot & Annotation Engine");
@@ -39,6 +40,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if is_demo_mode {
         run_benchmark_demo()?;
+        return Ok(());
+    }
+
+    if is_daemon_mode {
+        run_tray_daemon()?;
         return Ok(());
     }
 

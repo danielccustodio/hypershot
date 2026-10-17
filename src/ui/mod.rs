@@ -1,6 +1,8 @@
+pub mod daemon;
 pub mod overlay;
 pub mod toolbar;
 pub mod window;
 
+pub use daemon::run_tray_daemon;
 pub use overlay::CaptureOutcome;
 pub use window::{pin_to_desktop, run_overlay_window};
