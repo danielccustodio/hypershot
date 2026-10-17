@@ -19,6 +19,14 @@ pub fn run_overlay_window(screenshot: RgbaImage) -> Result<CaptureOutcome, Strin
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::*;
 
+    #[cfg(windows)]
+    unsafe {
+        let _ = windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        );
+    }
+
     let session = Box::new(OverlaySession::new(screenshot));
     *SESSION_PTR.lock().unwrap() = Some(session);
 
@@ -79,6 +87,56 @@ pub fn run_overlay_window(screenshot: RgbaImage) -> Result<CaptureOutcome, Strin
     };
 
     Ok(final_outcome)
+}
+
+#[cfg(windows)]
+unsafe fn check_and_handle_pending_save(hwnd: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::Graphics::Gdi::InvalidateRect;
+    use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+    use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, ShowWindow, SW_HIDE, SW_SHOW};
+
+    let needs_save = {
+        let mut session_guard = SESSION_PTR.lock().unwrap();
+        if let Some(session) = session_guard.as_mut() {
+            if session.pending_save {
+                session.pending_save = false;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    };
+
+    if needs_save {
+        let _ = ReleaseCapture();
+        let _ = ShowWindow(hwnd, SW_HIDE);
+
+        let saved = {
+            let mut session_guard = SESSION_PTR.lock().unwrap();
+            if let Some(session) = session_guard.as_mut() {
+                session.perform_save_dialog()
+            } else {
+                false
+            }
+        };
+
+        if saved {
+            let outcome = {
+                let session_guard = SESSION_PTR.lock().unwrap();
+                session_guard.as_ref().map(|s| s.outcome.clone()).unwrap_or(CaptureOutcome::Cancelled)
+            };
+            *OUTCOME.lock().unwrap() = Some(outcome);
+            let _ = DestroyWindow(hwnd);
+            return true;
+        } else {
+            // User cancelled save dialog: restore overlay!
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+    }
+    false
 }
 
 #[cfg(windows)]
@@ -169,9 +227,14 @@ unsafe extern "system" fn overlay_wndproc(
             if finished {
                 let _ = ReleaseCapture();
                 let _ = DestroyWindow(hwnd);
-            } else {
-                let _ = InvalidateRect(Some(hwnd), None, false);
+                return LRESULT(0);
             }
+
+            if check_and_handle_pending_save(hwnd) {
+                return LRESULT(0);
+            }
+
+            let _ = InvalidateRect(Some(hwnd), None, false);
             LRESULT(0)
         }
         WM_LBUTTONUP => {
@@ -193,9 +256,14 @@ unsafe extern "system" fn overlay_wndproc(
 
             if finished {
                 let _ = DestroyWindow(hwnd);
-            } else {
-                let _ = InvalidateRect(Some(hwnd), None, false);
+                return LRESULT(0);
             }
+
+            if check_and_handle_pending_save(hwnd) {
+                return LRESULT(0);
+            }
+
+            let _ = InvalidateRect(Some(hwnd), None, false);
             LRESULT(0)
         }
         WM_RBUTTONUP => {
@@ -248,10 +316,6 @@ unsafe extern "system" fn overlay_wndproc(
                         close_window = true;
                     } else if ctrl_down && key == b'S' as u16 {
                         session.trigger_action(crate::ui::toolbar::ActionType::Save);
-                        if session.is_finished {
-                            *OUTCOME.lock().unwrap() = Some(session.outcome.clone());
-                            close_window = true;
-                        }
                     } else if ctrl_down && key == b'Z' as u16 {
                         session.trigger_tool(crate::ui::toolbar::ToolType::Undo);
                     }
@@ -260,9 +324,14 @@ unsafe extern "system" fn overlay_wndproc(
 
             if close_window {
                 let _ = DestroyWindow(hwnd);
-            } else {
-                let _ = InvalidateRect(Some(hwnd), None, false);
+                return LRESULT(0);
             }
+
+            if check_and_handle_pending_save(hwnd) {
+                return LRESULT(0);
+            }
+
+            let _ = InvalidateRect(Some(hwnd), None, false);
             LRESULT(0)
         }
         WM_DESTROY => {

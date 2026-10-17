@@ -75,7 +75,12 @@ impl ToolbarLayout {
             selection.x.saturating_sub(v_width + 6)
         };
 
-        let v_y = selection.y.clamp(6, screen_h.saturating_sub(v_height + 6));
+        let max_v_y = screen_h.saturating_sub(v_height + 6);
+        let v_y = if max_v_y >= 6 {
+            selection.y.clamp(6, max_v_y)
+        } else {
+            max_v_y
+        };
         let vertical_rect = Rect::new(v_x, v_y, v_width, v_height);
 
         let mut tools_coords = Vec::new();

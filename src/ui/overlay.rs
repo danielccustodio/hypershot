@@ -68,6 +68,7 @@ pub struct OverlaySession {
 
     pub outcome: CaptureOutcome,
     pub is_finished: bool,
+    pub pending_save: bool,
 }
 
 impl OverlaySession {
@@ -135,6 +136,7 @@ impl OverlaySession {
 
             outcome: CaptureOutcome::Cancelled,
             is_finished: false,
+            pending_save: false,
         }
     }
 
@@ -373,8 +375,23 @@ impl OverlaySession {
                     return;
                 }
                 self.undo_stack.push(self.annotated_bgra.clone());
+
+                if self.active_tool == ToolType::StepBadge {
+                    // StepBadge is an instant single-click stamp: place badge ONCE and do not enter drag mode
+                    self.apply_annotation_stroke(x, y, x, y);
+                    self.drag_mode = DragMode::None;
+                    return;
+                }
+
+                if self.active_tool == ToolType::Pen {
+                    self.drag_mode = DragMode::Annotating;
+                    self.apply_annotation_stroke(x, y, x, y);
+                    return;
+                }
+
+                // For Line, Arrow, Rectangle, Highlighter, Pixelate:
+                // Only enter annotating drag mode without committing a 0x0 shape into the buffer
                 self.drag_mode = DragMode::Annotating;
-                self.apply_annotation_stroke(x, y, x, y);
                 return;
             }
 
@@ -440,7 +457,9 @@ impl OverlaySession {
                 }
             }
             DragMode::Annotating => {
-                if self.active_tool != ToolType::Pen {
+                // Apply dragged shapes (Arrow, Line, Rectangle, Highlighter, Pixelate)
+                // Note: Pen is applied incrementally during move, and StepBadge is applied on mouse_down
+                if self.active_tool != ToolType::Pen && self.active_tool != ToolType::StepBadge {
                     self.apply_annotation_stroke(self.drag_start.0, self.drag_start.1, x, y);
                 }
             }
@@ -493,37 +512,8 @@ impl OverlaySession {
                 self.is_finished = true;
             }
             ActionType::Save => {
-                if let Some(sel) = self.selection {
-                    let crop = self.get_final_image(sel);
-
-                    let save_dir = Path::new(&self.config.save_directory);
-                    let _ = fs::create_dir_all(save_dir);
-
-                    let ext = self.config.default_format.to_lowercase();
-                    let default_file_name = format!("hypershot_{}.{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), ext);
-
-                    let dialog = rfd::FileDialog::new()
-                        .set_directory(save_dir)
-                        .set_file_name(&default_file_name)
-                        .add_filter("PNG Image", &["png"])
-                        .add_filter("JPEG Image", &["jpg", "jpeg"])
-                        .add_filter("WebP Image", &["webp"]);
-
-                    if let Some(file_path) = dialog.save_file() {
-                        let path_str = file_path.to_string_lossy().to_string();
-                        if let Err(e) = crop.save(&file_path) {
-                            eprintln!("Failed to save image: {}", e);
-                        } else {
-                            info!("Successfully saved screenshot to: {}", path_str);
-
-                            if self.config.copy_to_clipboard_on_save {
-                                let _ = crate::core::clipboard::copy_to_clipboard(&crop);
-                            }
-
-                            self.outcome = CaptureOutcome::SavedToFile(path_str);
-                            self.is_finished = true;
-                        }
-                    }
+                if self.selection.is_some() {
+                    self.pending_save = true;
                 }
             }
             ActionType::Pin => {
@@ -618,6 +608,48 @@ impl OverlaySession {
                 info!("Screenshot ({}x{}) copied to clipboard!", final_img.width(), final_img.height());
             }
         }
+    }
+
+    pub fn perform_save_dialog(&mut self) -> bool {
+        if let Some(sel) = self.selection {
+            let crop = self.get_final_image(sel);
+
+            let save_dir = Path::new(&self.config.save_directory);
+            let _ = fs::create_dir_all(save_dir);
+
+            let ext = self.config.default_format.to_lowercase();
+            let default_file_name = format!(
+                "hypershot_{}.{}",
+                chrono::Local::now().format("%Y%m%d_%H%M%S"),
+                ext
+            );
+
+            let dialog = rfd::FileDialog::new()
+                .set_directory(save_dir)
+                .set_file_name(&default_file_name)
+                .add_filter("PNG Image (*.png)", &["png"])
+                .add_filter("JPEG Image (*.jpg; *.jpeg)", &["jpg", "jpeg"])
+                .add_filter("WebP Image (*.webp)", &["webp"]);
+
+            if let Some(file_path) = dialog.save_file() {
+                let path_str = file_path.to_string_lossy().to_string();
+                if let Err(e) = crop.save(&file_path) {
+                    eprintln!("Failed to save image: {}", e);
+                    return false;
+                } else {
+                    info!("Successfully saved screenshot to: {}", path_str);
+
+                    if self.config.copy_to_clipboard_on_save {
+                        let _ = crate::core::clipboard::copy_to_clipboard(&crop);
+                    }
+
+                    self.outcome = CaptureOutcome::SavedToFile(path_str);
+                    self.is_finished = true;
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Retrieves either the full-page stitched composite image or the annotated rectangle crop.
@@ -938,6 +970,7 @@ mod tests {
             scroll_status: None,
             outcome: CaptureOutcome::Cancelled,
             is_finished: false,
+            pending_save: false,
         }
     }
 
@@ -945,6 +978,44 @@ mod tests {
         session.on_mouse_down(from.0, from.1);
         session.on_mouse_move(to.0, to.1);
         session.on_mouse_up(to.0, to.1);
+    }
+
+    #[test]
+    fn test_step_badge_increments_consecutively_without_skipping() {
+        let sel = Rect::new(10, 10, 200, 200);
+        let mut session = session_with_selection(300, 300, sel);
+        session.active_tool = ToolType::StepBadge;
+
+        assert_eq!(session.step_counter, 1);
+
+        // First click (down + up): places badge 1, counter becomes 2
+        session.on_mouse_down(30, 30);
+        assert_eq!(session.step_counter, 2);
+        assert_eq!(session.drag_mode, DragMode::None);
+        session.on_mouse_up(30, 30);
+        assert_eq!(session.step_counter, 2, "Mouse up must not increment step badge a second time!");
+
+        // Second click: places badge 2, counter becomes 3
+        session.on_mouse_down(60, 60);
+        assert_eq!(session.step_counter, 3);
+        session.on_mouse_up(60, 60);
+        assert_eq!(session.step_counter, 3, "Mouse up must not skip numbers!");
+
+        // Third click: places badge 3, counter becomes 4
+        session.on_mouse_down(90, 90);
+        assert_eq!(session.step_counter, 4);
+        session.on_mouse_up(90, 90);
+        assert_eq!(session.step_counter, 4);
+
+        // Undo: should revert badge and set counter back to 3
+        session.trigger_tool(ToolType::Undo);
+        assert_eq!(session.step_counter, 3);
+
+        // Next click after undo: should place badge 3 again
+        session.on_mouse_down(90, 90);
+        assert_eq!(session.step_counter, 4);
+        session.on_mouse_up(90, 90);
+        assert_eq!(session.step_counter, 4);
     }
 
     #[test]
