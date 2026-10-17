@@ -47,31 +47,32 @@ impl Default for AppConfig {
 impl AppConfig {
     const CONFIG_FILE_NAME: &'static str = "config.json";
 
-    /// Returns the active configuration path (checks local directory first, then user AppData).
-    pub fn config_path() -> PathBuf {
-        let local_path = PathBuf::from(Self::CONFIG_FILE_NAME);
-        if local_path.exists() {
-            return local_path;
+    /// Returns the configuration path inside the user's AppData (`%APPDATA%\HyperShot\config.json`).
+    ///
+    /// The current working directory is never consulted, so a `config.json` planted in the
+    /// directory HyperShot is launched from cannot override the user's settings. Returns `None`
+    /// when `APPDATA` is unset or not an absolute path.
+    pub fn config_path() -> Option<PathBuf> {
+        let app_data = std::env::var("APPDATA").ok()?;
+        let app_data = Path::new(&app_data);
+        if !app_data.is_absolute() {
+            return None;
         }
 
-        if let Ok(app_data) = std::env::var("APPDATA") {
-            let app_dir = Path::new(&app_data).join("HyperShot");
-            let _ = fs::create_dir_all(&app_dir);
-            return app_dir.join(Self::CONFIG_FILE_NAME);
-        }
-
-        local_path
+        let app_dir = app_data.join("HyperShot");
+        let _ = fs::create_dir_all(&app_dir);
+        Some(app_dir.join(Self::CONFIG_FILE_NAME))
     }
 
     /// Loads the configuration from disk, creating a default one if it does not exist.
     pub fn load() -> Self {
-        let path = Self::config_path();
-
-        if path.exists() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(config) = serde_json::from_str::<AppConfig>(&content) {
-                    info!("Loaded user configuration from: {}", path.display());
-                    return config;
+        if let Some(path) = Self::config_path() {
+            if path.exists() {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(config) = serde_json::from_str::<AppConfig>(&content) {
+                        info!("Loaded user configuration from: {}", path.display());
+                        return config;
+                    }
                 }
             }
         }
@@ -83,7 +84,8 @@ impl AppConfig {
 
     /// Persists configuration to disk as formatted JSON.
     pub fn save(&self) -> Result<(), String> {
-        let path = Self::config_path();
+        let path = Self::config_path()
+            .ok_or_else(|| "Cannot determine config location: APPDATA is not set to an absolute path".to_string())?;
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Serialization error: {e}"))?;
 

@@ -365,6 +365,13 @@ impl OverlaySession {
             }
 
             if self.active_tool != ToolType::Select && sel.contains(x, y) {
+                if self.scroll_stitcher.is_some() {
+                    // The export is the stitched composite, whose pixels were all taken before
+                    // this click: a stroke drawn now would show in the preview but not in the output.
+                    self.drag_mode = DragMode::None;
+                    self.scroll_status = Some("Anotacoes desativadas no Scroll Mode: anote antes de clicar em Scroll".to_string());
+                    return;
+                }
                 self.undo_stack.push(self.annotated_bgra.clone());
                 self.drag_mode = DragMode::Annotating;
                 self.apply_annotation_stroke(x, y, x, y);
@@ -565,6 +572,12 @@ impl OverlaySession {
     }
 
     fn apply_annotation_stroke(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) {
+        // get_final_image exports the stitched composite whenever a stitcher exists, so a
+        // stroke made now would only alter the preview. Also covers a drag left in progress.
+        if self.scroll_stitcher.is_some() {
+            return;
+        }
+
         let (w, h) = (self.width, self.height);
         let color = self.active_color;
         let thickness = self.stroke_size;
@@ -890,5 +903,81 @@ fn render_text_to_buffer(buffer: &mut [u32], stride: u32, max_h: u32, text: &str
             }
         }
         cur_x += 7;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a session without `OverlaySession::new`, which would write a config file to disk.
+    fn session_with_selection(w: u32, h: u32, sel: Rect) -> OverlaySession {
+        let original_bgra: Vec<u32> = (0..w * h).map(|i| 0xFF000000 | (i.wrapping_mul(2654435761) & 0x00FF_FFFF)).collect();
+        let config = AppConfig::default();
+        OverlaySession {
+            width: w,
+            height: h,
+            stroke_size: config.default_stroke_size,
+            config,
+            dimmed_bgra: original_bgra.clone(),
+            annotated_bgra: original_bgra.clone(),
+            render_buffer: original_bgra.clone(),
+            original_bgra,
+            undo_stack: Vec::new(),
+            selection: Some(sel),
+            drag_mode: DragMode::None,
+            drag_start: (0, 0),
+            current_mouse: (0, 0),
+            active_tool: ToolType::Select,
+            hover_tool: None,
+            hover_action: None,
+            active_color: 0xFFEB2F2F,
+            step_counter: 1,
+            scroll_stitcher: None,
+            is_scroll_mode: false,
+            scroll_status: None,
+            outcome: CaptureOutcome::Cancelled,
+            is_finished: false,
+        }
+    }
+
+    fn drag(session: &mut OverlaySession, from: (i32, i32), to: (i32, i32)) {
+        session.on_mouse_down(from.0, from.1);
+        session.on_mouse_move(to.0, to.1);
+        session.on_mouse_up(to.0, to.1);
+    }
+
+    #[test]
+    fn annotations_are_refused_once_scroll_mode_owns_the_export() {
+        let sel = Rect::new(20, 20, 100, 100);
+        let mut session = session_with_selection(400, 400, sel);
+
+        // A redaction made before Scroll is part of the exported composite.
+        session.active_tool = ToolType::Pixelate;
+        drag(&mut session, (30, 30), (60, 60));
+        let redacted = session.extract_crop(sel);
+        session.trigger_action(ActionType::Scroll);
+        assert!(session.scroll_stitcher.is_some());
+        assert_eq!(session.get_final_image(sel), redacted);
+
+        // Once in Scroll mode, a stroke must not change the preview without reaching the output.
+        let annotated_before = session.annotated_bgra.clone();
+        let undo_depth = session.undo_stack.len();
+        for tool in [ToolType::Pixelate, ToolType::Pen, ToolType::Highlighter, ToolType::StepBadge] {
+            session.active_tool = tool;
+            drag(&mut session, (70, 70), (110, 110));
+        }
+        assert!(session.annotated_bgra == annotated_before);
+        assert_eq!(session.undo_stack.len(), undo_depth);
+        assert_eq!(session.drag_mode, DragMode::None);
+        assert_eq!(session.extract_crop(sel), session.get_final_image(sel));
+
+        // A drag already in progress when Scroll started cannot paint either.
+        session.active_tool = ToolType::Pen;
+        session.drag_mode = DragMode::Annotating;
+        session.drag_start = (70, 70);
+        session.on_mouse_move(110, 110);
+        session.on_mouse_up(110, 110);
+        assert!(session.annotated_bgra == annotated_before);
     }
 }
