@@ -137,6 +137,8 @@ cargo run
 - [x] Precision 8x Loupe magnifier with real-time HEX/RGB color picker.
 - [x] Frameless floating "Pin to Desktop" (Always-on-Top reference window).
 - [x] System tray daemon with global hotkeys (`PrintScreen` / `Ctrl+Shift+X`).
+- [x] Persistent preferences (`config.json`) for custom save paths, export formats, and hotkeys.
+- [x] Interactive Scroll Capture trigger via mouse wheel continuous stitching.
 - [ ] Pluggable cloud storage backend (S3, Cloudflare R2, Imgur, custom webhook).
 
 ---

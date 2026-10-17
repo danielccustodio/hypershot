@@ -47,6 +47,7 @@ pub fn draw_arrow(
 }
 
 /// Draws an outline or filled rectangle.
+#[allow(dead_code)]
 pub fn draw_rectangle(
     image: &mut RgbaImage,
     rect: Rect,
@@ -97,6 +98,7 @@ pub fn draw_highlighter(image: &mut RgbaImage, rect: Rect, highlight_color: Colo
 }
 
 /// Draws a thick antialiased line between two points.
+#[allow(dead_code)]
 pub fn draw_line(
     image: &mut RgbaImage,
     x0: i32,

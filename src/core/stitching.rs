@@ -41,6 +41,7 @@ impl ScrollStitcher {
     }
 
     /// Consume the stitcher and retrieve the final full-page image.
+    #[allow(dead_code)]
     pub fn finish(self) -> RgbaImage {
         self.composite
     }

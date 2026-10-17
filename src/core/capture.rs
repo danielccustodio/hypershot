@@ -89,6 +89,7 @@ impl CaptureEngine {
     }
 
     /// Captures a specific monitor by its index.
+    #[allow(dead_code)]
     pub fn capture_monitor_by_index(index: usize) -> Result<RgbaImage, String> {
         let monitors = Monitor::all().map_err(|e| format!("Failed to enumerate monitors: {e}"))?;
         let target = monitors

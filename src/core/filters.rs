@@ -116,6 +116,7 @@ pub fn pixelate(image: &mut RgbaImage, rect: Rect, block_size: u32) {
 }
 
 /// Applies a fast box blur over the target rectangle.
+#[allow(dead_code)]
 pub fn blur(image: &mut RgbaImage, rect: Rect, radius: u32) {
     if radius == 0 {
         return;

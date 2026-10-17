@@ -220,6 +220,15 @@ unsafe extern "system" fn overlay_wndproc(
             }
             LRESULT(0)
         }
+        WM_MOUSEWHEEL => {
+            let delta = ((wparam.0 >> 16) & 0xFFFF) as i16 as i32;
+            let mut session_guard = SESSION_PTR.lock().unwrap();
+            if let Some(session) = session_guard.as_mut() {
+                session.on_mouse_wheel(delta);
+            }
+            let _ = InvalidateRect(Some(hwnd), None, false);
+            LRESULT(0)
+        }
         WM_KEYDOWN => {
             let key = wparam.0 as u16;
             let ctrl_down = (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;

@@ -86,6 +86,7 @@ impl CounterManager {
     }
 
     /// Undoes the last step badge.
+    #[allow(dead_code)]
     pub fn undo(&mut self) -> Option<StepBadge> {
         let removed = self.badges.pop();
         if removed.is_some() && self.current_number > 1 {
@@ -95,11 +96,13 @@ impl CounterManager {
     }
 
     /// Resets the counter back to 1.
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.badges.clear();
         self.current_number = 1;
     }
 
+    #[allow(dead_code)]
     pub fn badges(&self) -> &[StepBadge] {
         &self.badges
     }

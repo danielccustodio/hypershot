@@ -1,7 +1,12 @@
-use image::{Rgba, RgbaImage};
+use image::{imageops, Rgba, RgbaImage};
 use log::info;
+use std::fs;
+use std::path::Path;
 
+use crate::core::capture::CaptureEngine;
+use crate::core::config::AppConfig;
 use crate::core::filters::Rect;
+use crate::core::stitching::{ScrollStitcher, StitchResult};
 use crate::ui::toolbar::{ActionType, ToolType, ToolbarLayout};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +42,7 @@ pub enum CaptureOutcome {
 pub struct OverlaySession {
     pub width: u32,
     pub height: u32,
+    pub config: AppConfig,
 
     pub original_bgra: Vec<u32>,
     pub dimmed_bgra: Vec<u32>,
@@ -56,6 +62,10 @@ pub struct OverlaySession {
     pub stroke_size: i32,
     pub step_counter: u32,
 
+    pub scroll_stitcher: Option<ScrollStitcher>,
+    pub is_scroll_mode: bool,
+    pub scroll_status: Option<String>,
+
     pub outcome: CaptureOutcome,
     pub is_finished: bool,
 }
@@ -66,8 +76,12 @@ impl OverlaySession {
         let height = screenshot.height();
         let total_pixels = (width * height) as usize;
 
+        let config = AppConfig::load();
+
         let mut original_bgra = vec![0u32; total_pixels];
         let mut dimmed_bgra = vec![0u32; total_pixels];
+
+        let dim_factor = config.dark_backdrop_level as u32;
 
         let raw = screenshot.as_raw();
         for (i, chunk) in raw.chunks_exact(4).enumerate() {
@@ -78,19 +92,25 @@ impl OverlaySession {
             let pix = 0xFF000000 | (r << 16) | (g << 8) | b;
             original_bgra[i] = pix;
 
-            // 40% dimming for instant backdrop
-            let dr = (r * 150) / 255;
-            let dg = (g * 150) / 255;
-            let db = (b * 150) / 255;
+            // Configurable backdrop dimming
+            let dr = (r * dim_factor) / 255;
+            let dg = (g * dim_factor) / 255;
+            let db = (b * dim_factor) / 255;
             dimmed_bgra[i] = 0xFF000000 | (dr << 16) | (dg << 8) | db;
         }
 
         let annotated_bgra = original_bgra.clone();
         let render_buffer = dimmed_bgra.clone();
 
+        let active_color = 0xFF000000
+            | ((config.default_color[0] as u32) << 16)
+            | ((config.default_color[1] as u32) << 8)
+            | (config.default_color[2] as u32);
+
         Self {
             width,
             height,
+            config: config.clone(),
             original_bgra,
             dimmed_bgra,
             annotated_bgra,
@@ -105,9 +125,13 @@ impl OverlaySession {
             active_tool: ToolType::Select,
             hover_tool: None,
             hover_action: None,
-            active_color: 0xFFEB2F2F, // Vibrant Red (0xAARRGGBB)
-            stroke_size: 4,
+            active_color,
+            stroke_size: config.default_stroke_size,
             step_counter: 1,
+
+            scroll_stitcher: None,
+            is_scroll_mode: false,
+            scroll_status: None,
 
             outcome: CaptureOutcome::Cancelled,
             is_finished: false,
@@ -116,12 +140,10 @@ impl OverlaySession {
 
     /// Blazing fast SIMD-friendly compose into the pre-allocated render buffer (Zero allocations).
     pub fn render_frame(&mut self) -> &[u32] {
-        // 1. Fast memcpy dimmed backdrop
         self.render_buffer.copy_from_slice(&self.dimmed_bgra);
 
         let (w, h) = (self.width, self.height);
 
-        // 2. If selection active, restore annotated bright pixels inside the box
         if let Some(sel) = self.selection.and_then(|r| r.clamp_to_image(w, h)) {
             for y in sel.y..(sel.y + sel.height) {
                 let row_start = (y * w + sel.x) as usize;
@@ -129,8 +151,7 @@ impl OverlaySession {
                 self.render_buffer[row_start..row_end].copy_from_slice(&self.annotated_bgra[row_start..row_end]);
             }
 
-            // Selection Accent Border (#3B82F6)
-            let border_color: u32 = 0xFF3B82F6;
+            let border_color: u32 = if self.is_scroll_mode { 0xFF10B981 } else { 0xFF3B82F6 };
             for x in sel.x..(sel.x + sel.width) {
                 put_pixel(&mut self.render_buffer, w, h, x as i32, sel.y as i32, border_color);
                 put_pixel(&mut self.render_buffer, w, h, x as i32, (sel.y + sel.height - 1) as i32, border_color);
@@ -140,13 +161,9 @@ impl OverlaySession {
                 put_pixel(&mut self.render_buffer, w, h, (sel.x + sel.width - 1) as i32, y as i32, border_color);
             }
 
-            // 8 Resize Handles
             self.draw_resize_handles(sel);
-
-            // Dimension Badge (e.g. 800 x 600 px)
             self.draw_dimension_badge(sel);
 
-            // Dual Dock Toolbars
             let layout = ToolbarLayout::compute(sel, w, h);
             layout.render_to_buffer(
                 &mut self.render_buffer,
@@ -157,12 +174,38 @@ impl OverlaySession {
                 self.hover_action,
                 self.active_color,
             );
-        } else {
-            // Loupe & Magnifier before selection
+
+            // Draw Scroll Banner if in Scroll Mode
+            if self.is_scroll_mode {
+                self.draw_scroll_banner();
+            }
+        } else if self.config.enable_loupe {
             self.draw_magnifier_loupe();
         }
 
         &self.render_buffer
+    }
+
+    fn draw_scroll_banner(&mut self) {
+        let (w, h) = (self.width, self.height);
+        let status = self.scroll_status.as_deref().unwrap_or("Scroll Capture Ativo: Gire o scroll para costurar a pagina (Enter para concluir)");
+        let banner_w = ((status.len() as u32 * 7) + 24).min(w - 20);
+        let banner_h = 28;
+        let banner_x = (w.saturating_sub(banner_w)) / 2;
+        let banner_y = 20;
+
+        let bg: u32 = 0xFF1A1B26;
+        let border: u32 = 0xFF10B981; // Green
+        let text_color: u32 = 0xFFFFFFFF;
+
+        for dy in 0..banner_h {
+            for dx in 0..banner_w {
+                let is_b = dx == 0 || dx == banner_w - 1 || dy == 0 || dy == banner_h - 1;
+                put_pixel(&mut self.render_buffer, w, h, (banner_x + dx) as i32, (banner_y + dy) as i32, if is_b { border } else { bg });
+            }
+        }
+
+        render_text_to_buffer(&mut self.render_buffer, w, h, status, (banner_x + 12) as i32, (banner_y + 9) as i32, text_color);
     }
 
     fn draw_resize_handles(&mut self, sel: Rect) {
@@ -181,7 +224,7 @@ impl OverlaySession {
         ];
 
         let handle_fill: u32 = 0xFFFFFFFF;
-        let handle_border: u32 = 0xFF3B82F6;
+        let handle_border: u32 = if self.is_scroll_mode { 0xFF10B981 } else { 0xFF3B82F6 };
 
         for (px, py) in points {
             for dy in -hs..=hs {
@@ -195,7 +238,18 @@ impl OverlaySession {
 
     fn draw_dimension_badge(&mut self, sel: Rect) {
         let (w, h) = (self.width, self.height);
-        let badge_text = format!("{} x {} px", sel.width, sel.height);
+        let total_h = if let Some(ref stitcher) = self.scroll_stitcher {
+            stitcher.composite().height()
+        } else {
+            sel.height
+        };
+
+        let badge_text = if self.is_scroll_mode {
+            format!("{} x {} px [SCROLL]", sel.width, total_h)
+        } else {
+            format!("{} x {} px", sel.width, sel.height)
+        };
+
         let badge_w = (badge_text.len() as u32 * 7) + 14;
         let badge_h = 20;
 
@@ -255,7 +309,6 @@ impl OverlaySession {
             }
         }
 
-        // Crosshair
         let cx = lx + half;
         let cy = ly + half;
         let crosshair: u32 = 0xFFEF4444; // Red
@@ -266,7 +319,6 @@ impl OverlaySession {
             }
         }
 
-        // Border & footer
         let footer_h = 20;
         let total_h = loupe_size + footer_h;
         let border: u32 = 0xFF3B82F6;
@@ -283,7 +335,6 @@ impl OverlaySession {
             }
         }
 
-        // Color label
         let center_pix = self.original_bgra[(my as u32 * w + mx as u32) as usize];
         let r = (center_pix >> 16) & 0xFF;
         let g = (center_pix >> 8) & 0xFF;
@@ -392,6 +443,37 @@ impl OverlaySession {
         self.drag_mode = DragMode::None;
     }
 
+    /// Handles mouse wheel scrolling (adjusts stroke size or stitches scroll capture).
+    pub fn on_mouse_wheel(&mut self, delta: i32) {
+        if self.is_scroll_mode {
+            if let Some(sel) = self.selection {
+                // Re-capture desktop to get newly scrolled content
+                if let Ok(new_desktop) = CaptureEngine::capture_primary() {
+                    let clamped = sel.clamp_to_image(new_desktop.width(), new_desktop.height()).unwrap_or(sel);
+                    let new_frame = imageops::crop_imm(&new_desktop, clamped.x, clamped.y, clamped.width, clamped.height).to_image();
+
+                    if let Some(ref mut stitcher) = self.scroll_stitcher {
+                        match stitcher.append_frame(&new_frame) {
+                            StitchResult::Appended { added_height, total_height } => {
+                                self.scroll_status = Some(format!("Costurando: +{}px (Altura Total: {}px) - Enter para salvar", added_height, total_height));
+                            }
+                            StitchResult::EndOfPage => {
+                                self.scroll_status = Some("Fim da pagina detectado - Pressione Enter para salvar".to_string());
+                            }
+                            StitchResult::MatchFailed => {
+                                self.scroll_status = Some("Role a janela mais devagar para sobrepor".to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Adjust stroke thickness
+            let change = if delta > 0 { 1 } else { -1 };
+            self.stroke_size = (self.stroke_size + change).clamp(1, 24);
+        }
+    }
+
     pub fn trigger_action(&mut self, action: ActionType) {
         match action {
             ActionType::Close => {
@@ -405,19 +487,32 @@ impl OverlaySession {
             }
             ActionType::Save => {
                 if let Some(sel) = self.selection {
-                    let crop = self.extract_crop(sel);
-                    if let Some(file_path) = rfd::FileDialog::new()
-                        .set_file_name("hypershot_capture.png")
+                    let crop = self.get_final_image(sel);
+
+                    let save_dir = Path::new(&self.config.save_directory);
+                    let _ = fs::create_dir_all(save_dir);
+
+                    let ext = self.config.default_format.to_lowercase();
+                    let default_file_name = format!("hypershot_{}.{}", chrono::Local::now().format("%Y%m%d_%H%M%S"), ext);
+
+                    let dialog = rfd::FileDialog::new()
+                        .set_directory(save_dir)
+                        .set_file_name(&default_file_name)
                         .add_filter("PNG Image", &["png"])
                         .add_filter("JPEG Image", &["jpg", "jpeg"])
-                        .add_filter("WebP Image", &["webp"])
-                        .save_file()
-                    {
+                        .add_filter("WebP Image", &["webp"]);
+
+                    if let Some(file_path) = dialog.save_file() {
                         let path_str = file_path.to_string_lossy().to_string();
                         if let Err(e) = crop.save(&file_path) {
                             eprintln!("Failed to save image: {}", e);
                         } else {
                             info!("Successfully saved screenshot to: {}", path_str);
+
+                            if self.config.copy_to_clipboard_on_save {
+                                let _ = crate::core::clipboard::copy_to_clipboard(&crop);
+                            }
+
                             self.outcome = CaptureOutcome::SavedToFile(path_str);
                             self.is_finished = true;
                         }
@@ -426,13 +521,19 @@ impl OverlaySession {
             }
             ActionType::Pin => {
                 if let Some(sel) = self.selection {
-                    let crop = self.extract_crop(sel);
+                    let crop = self.get_final_image(sel);
                     self.outcome = CaptureOutcome::PinnedToDesktop(crop);
                     self.is_finished = true;
                 }
             }
             ActionType::Scroll => {
-                info!("Scroll Capture engaged");
+                if let Some(sel) = self.selection {
+                    let initial_crop = self.extract_crop(sel);
+                    self.scroll_stitcher = Some(ScrollStitcher::new(initial_crop));
+                    self.is_scroll_mode = true;
+                    self.scroll_status = Some("Scroll Mode Ativo: Gire o scroll sobre a pagina ou aperte Enter para finalizar".to_string());
+                    info!("Scroll capture initialized for region {}x{}", sel.width, sel.height);
+                }
             }
         }
     }
@@ -497,12 +598,21 @@ impl OverlaySession {
 
     pub fn copy_selection(&self) {
         if let Some(sel) = self.selection {
-            let crop = self.extract_crop(sel);
-            if let Err(e) = crate::core::clipboard::copy_to_clipboard(&crop) {
+            let final_img = self.get_final_image(sel);
+            if let Err(e) = crate::core::clipboard::copy_to_clipboard(&final_img) {
                 eprintln!("Clipboard error: {}", e);
             } else {
-                info!("Cropped screenshot ({}x{}) copied to clipboard!", sel.width, sel.height);
+                info!("Screenshot ({}x{}) copied to clipboard!", final_img.width(), final_img.height());
             }
+        }
+    }
+
+    /// Retrieves either the full-page stitched composite image or the annotated rectangle crop.
+    pub fn get_final_image(&self, sel: Rect) -> RgbaImage {
+        if let Some(ref stitcher) = self.scroll_stitcher {
+            stitcher.composite().clone()
+        } else {
+            self.extract_crop(sel)
         }
     }
 
@@ -659,7 +769,6 @@ fn draw_highlight_fast(buffer: &mut [u32], stride: u32, max_h: u32, rect: Rect, 
             let og = (orig >> 8) & 0xFF;
             let ob = orig & 0xFF;
 
-            // Blend 45% highlight
             let nr = (or * 55 + hr * 45) / 100;
             let ng = (og * 55 + hg * 45) / 100;
             let nb = (ob * 55 + hb * 45) / 100;
@@ -717,7 +826,6 @@ fn draw_step_badge_fast(buffer: &mut [u32], stride: u32, max_h: u32, cx: i32, cy
     let radius = 13;
     let r_sq = radius * radius;
 
-    // Filled badge circle with white border
     for dy in -radius..=radius {
         for dx in -radius..=radius {
             let dist_sq = dx * dx + dy * dy;
@@ -729,7 +837,6 @@ fn draw_step_badge_fast(buffer: &mut [u32], stride: u32, max_h: u32, cx: i32, cy
         }
     }
 
-    // Number text
     let num_str = step.to_string();
     let text_x = cx - ((num_str.len() as i32 * 6) / 2);
     let text_y = cy - 3;
@@ -752,6 +859,25 @@ fn render_text_to_buffer(buffer: &mut [u32], stride: u32, max_h: u32, text: &str
             '9' => [0x1F, 0x11, 0x1F, 0x01, 0x1F],
             'x' | 'X' => [0x11, 0x0A, 0x04, 0x0A, 0x11],
             'p' | 'P' => [0x1E, 0x11, 0x1E, 0x10, 0x10],
+            'S' | 's' => [0x1F, 0x10, 0x1F, 0x01, 0x1F],
+            'C' | 'c' => [0x1F, 0x10, 0x10, 0x10, 0x1F],
+            'R' | 'r' => [0x1E, 0x11, 0x1E, 0x14, 0x12],
+            'O' | 'o' => [0x0E, 0x11, 0x11, 0x11, 0x0E],
+            'L' | 'l' => [0x10, 0x10, 0x10, 0x10, 0x1F],
+            'M' | 'm' => [0x11, 0x1B, 0x15, 0x11, 0x11],
+            'D' | 'd' => [0x1E, 0x11, 0x11, 0x11, 0x1E],
+            'E' | 'e' => [0x1F, 0x10, 0x1E, 0x10, 0x1F],
+            'A' | 'a' => [0x0E, 0x11, 0x1F, 0x11, 0x11],
+            'T' | 't' => [0x1F, 0x04, 0x04, 0x04, 0x04],
+            'I' | 'i' => [0x0E, 0x04, 0x04, 0x04, 0x0E],
+            'V' | 'v' => [0x11, 0x11, 0x11, 0x0A, 0x04],
+            '+' => [0x00, 0x04, 0x0E, 0x04, 0x00],
+            ':' => [0x00, 0x04, 0x00, 0x04, 0x00],
+            '[' => [0x0E, 0x08, 0x08, 0x08, 0x0E],
+            ']' => [0x0E, 0x02, 0x02, 0x02, 0x0E],
+            '(' => [0x02, 0x04, 0x04, 0x04, 0x02],
+            ')' => [0x08, 0x04, 0x04, 0x04, 0x08],
+            '-' => [0x00, 0x00, 0x1F, 0x00, 0x00],
             ' ' => [0x00, 0x00, 0x00, 0x00, 0x00],
             _ => [0x1F, 0x15, 0x15, 0x15, 0x1F],
         };
