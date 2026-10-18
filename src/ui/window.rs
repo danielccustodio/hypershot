@@ -42,12 +42,12 @@ pub fn run_overlay_window(screenshot: RgbaImage) -> Result<CaptureOutcome, Strin
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: h_instance_typed,
-            hIcon: HICON::default(),
+            hIcon: crate::ui::daemon::load_tray_icon(),
             hCursor: LoadCursorW(None, IDC_CROSS).unwrap_or_default(),
             hbrBackground: HBRUSH::default(),
             lpszMenuName: windows::core::PCWSTR::null(),
             lpszClassName: class_name,
-            hIconSm: HICON::default(),
+            hIconSm: crate::ui::daemon::load_tray_icon(),
         };
 
         let _ = RegisterClassExW(&wnd_class);
@@ -373,12 +373,12 @@ pub fn pin_to_desktop(image: RgbaImage) -> Result<(), String> {
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: h_instance_typed,
-            hIcon: HICON::default(),
+            hIcon: crate::ui::daemon::load_tray_icon(),
             hCursor: LoadCursorW(None, IDC_SIZEALL).unwrap_or_default(),
             hbrBackground: HBRUSH::default(),
             lpszMenuName: windows::core::PCWSTR::null(),
             lpszClassName: class_name,
-            hIconSm: HICON::default(),
+            hIconSm: crate::ui::daemon::load_tray_icon(),
         };
 
         let _ = RegisterClassExW(&wnd_class);

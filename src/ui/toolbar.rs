@@ -195,6 +195,65 @@ impl ToolbarLayout {
 
             render_action_icon(buffer, width, height, *action, *rect, if is_hover { 0xFFFFFFFF } else { icon_color });
         }
+
+        // 3. Render Floating Tooltip Pill for Hovered Tool
+        if let Some(tool) = hover_tool {
+            if let Some((_, rect)) = self.tools.iter().find(|(t, _)| *t == tool) {
+                let tooltip_text = tool.tooltip();
+                let pill_w = ((tooltip_text.len() as u32 * 6) + 14) as i32;
+                let tx = if rect.x >= pill_w as u32 + 10 {
+                    rect.x as i32 - pill_w - 6
+                } else {
+                    (rect.x + rect.width + 6) as i32
+                };
+                let ty = rect.y as i32 + ((rect.height as i32 - 22) / 2);
+                crate::ui::font::draw_tooltip_pill(buffer, width, height, tooltip_text, tx, ty);
+            }
+        }
+
+        // 4. Render Floating Tooltip Pill for Hovered Action
+        if let Some(action) = hover_action {
+            if let Some((_, rect)) = self.actions.iter().find(|(a, _)| *a == action) {
+                let tooltip_text = action.tooltip();
+                let pill_w = ((tooltip_text.len() as u32 * 6) + 14) as i32;
+                let tx = (rect.x as i32 + (rect.width as i32 / 2)) - (pill_w / 2);
+                let ty = if rect.y >= 30 {
+                    rect.y as i32 - 28
+                } else {
+                    (rect.y + rect.height + 6) as i32
+                };
+                crate::ui::font::draw_tooltip_pill(buffer, width, height, tooltip_text, tx, ty);
+            }
+        }
+    }
+}
+
+impl ToolType {
+    pub fn tooltip(&self) -> &'static str {
+        match self {
+            ToolType::Select => "Selecionar (V)",
+            ToolType::Pen => "Caneta Livre (P)",
+            ToolType::Line => "Linha Reta (L)",
+            ToolType::Arrow => "Seta Direcional (A)",
+            ToolType::Rectangle => "Retangulo (R)",
+            ToolType::Highlighter => "Marca-Texto (H)",
+            ToolType::Pixelate => "Desfocar / Censurar (B)",
+            ToolType::StepBadge => "Passo Numerico (S)",
+            ToolType::ColorPicker => "Trocar Cor (C)",
+            ToolType::Undo => "Desfazer (Ctrl+Z)",
+        }
+    }
+}
+
+impl ActionType {
+    pub fn tooltip(&self) -> &'static str {
+        match self {
+            ActionType::Close => "Cancelar (Esc)",
+            ActionType::Save => "Salvar Imagem (Ctrl+S)",
+            ActionType::Copy => "Copiar Imagem (Ctrl+C)",
+            ActionType::Pin => "Fixar na Tela (Ctrl+P)",
+            ActionType::Scroll => "Captura de Rolagem (Scroll)",
+        }
     }
 }
 
@@ -216,93 +275,180 @@ fn render_tool_icon(buffer: &mut [u32], stride: u32, max_h: u32, tool: ToolType,
     let cy = rect.y as i32 + (rect.height as i32 / 2);
 
     match tool {
+        // High-definition angled fountain pen with nib and grip
         ToolType::Pen => {
-            for i in -6..=6 {
+            // Pen shaft (slanted 45 deg, 2px wide)
+            for i in -5..=4 {
                 put_pixel(buffer, stride, max_h, cx + i, cy - i, color);
                 put_pixel(buffer, stride, max_h, cx + i + 1, cy - i, color);
             }
-            put_pixel(buffer, stride, max_h, cx - 6, cy + 6, color);
+            // Pen grip band
+            put_pixel(buffer, stride, max_h, cx - 2, cy + 1, 0xFF38BDF8);
+            put_pixel(buffer, stride, max_h, cx - 1, cy + 2, 0xFF38BDF8);
+            // Sharp writing nib
+            put_pixel(buffer, stride, max_h, cx - 6, cy + 5, color);
+            put_pixel(buffer, stride, max_h, cx - 5, cy + 6, color);
+            put_pixel(buffer, stride, max_h, cx - 7, cy + 7, color); // Point tip
+            // Ink droplet
+            put_pixel(buffer, stride, max_h, cx - 8, cy + 8, active_color);
+            // Pen top cap
+            put_pixel(buffer, stride, max_h, cx + 5, cy - 5, color);
+            put_pixel(buffer, stride, max_h, cx + 6, cy - 6, color);
         }
+
+        // Clean 45-degree straight line with solid caps
         ToolType::Line => {
-            for dx in -7..=7 {
-                put_pixel(buffer, stride, max_h, cx + dx, cy, color);
-                put_pixel(buffer, stride, max_h, cx + dx, cy + 1, color);
-            }
-        }
-        ToolType::Arrow => {
             for i in -6..=6 {
                 put_pixel(buffer, stride, max_h, cx + i, cy - i, color);
+                put_pixel(buffer, stride, max_h, cx + i, cy - i + 1, color);
             }
-            for i in 0..=5 {
-                put_pixel(buffer, stride, max_h, cx + 6 - i, cy - 6, color);
-                put_pixel(buffer, stride, max_h, cx + 6, cy - 6 + i, color);
+            put_pixel(buffer, stride, max_h, cx - 7, cy + 7, color);
+            put_pixel(buffer, stride, max_h, cx + 7, cy - 7, color);
+        }
+
+        // Directional arrow with shaft and solid filled triangular arrowhead
+        ToolType::Arrow => {
+            // Shaft
+            for i in -6..=2 {
+                put_pixel(buffer, stride, max_h, cx + i, cy - i, color);
+                put_pixel(buffer, stride, max_h, cx + i, cy - i + 1, color);
+            }
+            // Filled solid arrowhead pointing top-right
+            for dy in -7i32..=-1 {
+                for dx in 1i32..=7 {
+                    let rel_x = dx - 1;
+                    let rel_y = dy + 7;
+                    if rel_x + rel_y >= 5 {
+                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
+                    }
+                }
             }
         }
+
+        // Rounded rectangle frame with clean borders
         ToolType::Rectangle => {
-            for dx in -6..=6 {
+            for dx in -7..=7 {
                 put_pixel(buffer, stride, max_h, cx + dx, cy - 6, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 5, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 5, color);
                 put_pixel(buffer, stride, max_h, cx + dx, cy + 6, color);
             }
-            for dy in -6..=6 {
+            for dy in -5..=5 {
+                put_pixel(buffer, stride, max_h, cx - 7, cy + dy, color);
                 put_pixel(buffer, stride, max_h, cx - 6, cy + dy, color);
                 put_pixel(buffer, stride, max_h, cx + 6, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 7, cy + dy, color);
             }
         }
+
+        // Slanted highlighter with chisel tip and neon stroke
         ToolType::Highlighter => {
-            for dx in -5..=5 {
-                for dy in -3..=3 {
+            // Marker body
+            for dy in -6..=-1 {
+                for dx in -2..=5 {
                     put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
                 }
             }
+            // Chisel tip (angled)
+            for dy in 0..=3 {
+                for dx in -5 + dy..=-1 {
+                    put_pixel(buffer, stride, max_h, cx + dx, cy + dy, 0xFFFBBF24); // Neon amber
+                }
+            }
+            // Fluorescent highlight line beneath
+            for dx in -7..=3 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 6, 0xAAFACC15); // Vibrant yellow
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 7, 0xAAFACC15);
+            }
         }
+
+        // Universal 3x3 Privacy Mosaic / Pixelate icon with alternating shaded tiles
         ToolType::Pixelate => {
-            for dy in -6..=6 {
-                for dx in -6..=6 {
-                    if ((dx + 6) / 4 + (dy + 6) / 4) % 2 == 0 {
-                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
+            let tile_size = 4;
+            let c_dark = 0xFF475569;
+            let c_mid = 0xFF94A3B8;
+            let c_light = 0xFFF1F5F9;
+
+            for ty in 0..3 {
+                for tx in 0..3 {
+                    let tile_color = match (tx + ty) % 3 {
+                        0 => c_light,
+                        1 => c_mid,
+                        _ => c_dark,
+                    };
+                    let start_x = cx - 6 + (tx * tile_size);
+                    let start_y = cy - 6 + (ty * tile_size);
+                    for py in 0..3 {
+                        for px in 0..3 {
+                            put_pixel(buffer, stride, max_h, start_x + px, start_y + py, tile_color);
+                        }
                     }
                 }
             }
         }
+
+        // Circular badge with bold, centered numeral "1"
         ToolType::StepBadge => {
-            for dy in -6..=6 {
-                for dx in -6..=6 {
-                    let dist_sq = dx * dx + dy * dy;
-                    if dist_sq >= 25 && dist_sq <= 40 {
+            // Filled circle badge
+            for dy in -7..=7 {
+                for dx in -7..=7 {
+                    let d_sq = dx * dx + dy * dy;
+                    if d_sq <= 49 {
+                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, 0xFF3B82F6); // Blue badge
+                    }
+                    if d_sq >= 40 && d_sq <= 52 {
                         put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
                     }
                 }
             }
-            for dy in -3..=3 {
-                put_pixel(buffer, stride, max_h, cx, cy + dy, color);
+            // Centered sharp "1"
+            for dy in -4..=4 {
+                put_pixel(buffer, stride, max_h, cx, cy + dy, 0xFFFFFFFF);
+                put_pixel(buffer, stride, max_h, cx + 1, cy + dy, 0xFFFFFFFF);
             }
-            put_pixel(buffer, stride, max_h, cx - 1, cy - 2, color);
+            put_pixel(buffer, stride, max_h, cx - 1, cy - 3, 0xFFFFFFFF);
+            put_pixel(buffer, stride, max_h, cx - 2, cy - 2, 0xFFFFFFFF);
+            for dx in -2..=3 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 4, 0xFFFFFFFF);
+            }
         }
+
+        // Color palette with live active color preview disc
         ToolType::ColorPicker => {
-            for dy in -5..=5 {
-                for dx in -5..=5 {
-                    put_pixel(buffer, stride, max_h, cx + dx, cy + dy, active_color);
+            // Outer round bezel
+            for dy in -7..=7 {
+                for dx in -7..=7 {
+                    let dist = dx * dx + dy * dy;
+                    if dist <= 50 {
+                        // Inner active color disc
+                        let c = if dist <= 28 { active_color } else { color };
+                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, c);
+                    }
                 }
             }
-            for dx in -6..=6 {
-                put_pixel(buffer, stride, max_h, cx + dx, cy - 6, color);
-                put_pixel(buffer, stride, max_h, cx + dx, cy + 6, color);
-            }
-            for dy in -6..=6 {
-                put_pixel(buffer, stride, max_h, cx - 6, cy + dy, color);
-                put_pixel(buffer, stride, max_h, cx + 6, cy + dy, color);
-            }
+            // White center reflection
+            put_pixel(buffer, stride, max_h, cx - 2, cy - 2, 0xFFFFFFFF);
+            put_pixel(buffer, stride, max_h, cx - 1, cy - 3, 0xFFFFFFFF);
         }
+
+        // Curved undo return arrow
         ToolType::Undo => {
-            for dx in -5..=5 {
+            // Arc
+            for dx in -4..=4 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 5, color);
                 put_pixel(buffer, stride, max_h, cx + dx, cy - 4, color);
             }
             for dy in -4..=2 {
+                put_pixel(buffer, stride, max_h, cx + 4, cy + dy, color);
                 put_pixel(buffer, stride, max_h, cx + 5, cy + dy, color);
             }
-            for i in 0..=3 {
-                put_pixel(buffer, stride, max_h, cx - 5 + i, cy - 4 - i, color);
-                put_pixel(buffer, stride, max_h, cx - 5 + i, cy - 4 + i, color);
+            // Left arrowhead
+            for i in 0..=4 {
+                put_pixel(buffer, stride, max_h, cx - 4 + i, cy - 5 - i, color);
+                put_pixel(buffer, stride, max_h, cx - 4 + i, cy - 5 + i, color);
+            }
+            for dy in -7..=-3 {
+                put_pixel(buffer, stride, max_h, cx - 4, cy + dy, color);
             }
         }
         _ => {}
@@ -314,68 +460,110 @@ fn render_action_icon(buffer: &mut [u32], stride: u32, max_h: u32, action: Actio
     let cy = rect.y as i32 + (rect.height as i32 / 2);
 
     match action {
+        // Thick clean 'X' cancel icon
         ActionType::Close => {
-            for i in -5..=5 {
+            for i in -6..=6 {
                 put_pixel(buffer, stride, max_h, cx + i, cy + i, color);
                 put_pixel(buffer, stride, max_h, cx + i + 1, cy + i, color);
                 put_pixel(buffer, stride, max_h, cx + i, cy - i, color);
                 put_pixel(buffer, stride, max_h, cx + i + 1, cy - i, color);
             }
         }
+
+        // Save tray / disk icon with down arrow
         ActionType::Save => {
-            for dx in -6..=6 {
-                for dy in -6..=6 {
-                    let is_outer = dx == -6 || dx == 6 || dy == -6 || dy == 6;
-                    let is_cutout = (dx >= -3 && dx <= 3 && dy >= -5 && dy <= -2)
-                        || (dx >= -4 && dx <= 4 && dy >= 1 && dy <= 5);
-                    if is_outer || is_cutout {
-                        put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
-                    }
-                }
+            // Tray base & walls
+            for dx in -7..=7 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 6, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 7, color);
             }
-        }
-        ActionType::Copy => {
-            for dx in -3..=5 {
-                put_pixel(buffer, stride, max_h, cx + dx, cy - 5, color);
-                put_pixel(buffer, stride, max_h, cx + dx, cy + 3, color);
+            for dy in 2..=7 {
+                put_pixel(buffer, stride, max_h, cx - 7, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx - 6, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 6, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 7, cy + dy, color);
             }
-            for dy in -5..=3 {
-                put_pixel(buffer, stride, max_h, cx - 3, cy + dy, color);
-                put_pixel(buffer, stride, max_h, cx + 5, cy + dy, color);
-            }
-            for dx in -5..=3 {
-                put_pixel(buffer, stride, max_h, cx + dx, cy - 3, color);
-                put_pixel(buffer, stride, max_h, cx + dx, cy + 5, color);
-            }
-            for dy in -3..=5 {
-                put_pixel(buffer, stride, max_h, cx - 5, cy + dy, color);
-                put_pixel(buffer, stride, max_h, cx + 3, cy + dy, color);
-            }
-        }
-        ActionType::Pin => {
-            for dy in -6..=-2 {
+            // Downward arrow entering tray
+            for dy in -6..=1 {
                 put_pixel(buffer, stride, max_h, cx, cy + dy, color);
                 put_pixel(buffer, stride, max_h, cx - 1, cy + dy, color);
             }
-            for dx in -4..=3 {
-                put_pixel(buffer, stride, max_h, cx + dx, cy - 2, color);
-            }
-            for dy in -1..=5 {
-                put_pixel(buffer, stride, max_h, cx, cy + dy, color);
+            for i in 0..=4 {
+                put_pixel(buffer, stride, max_h, cx - i, cy + 1 - i, color);
+                put_pixel(buffer, stride, max_h, cx + i - 1, cy + 1 - i, color);
             }
         }
-        ActionType::Scroll => {
-            for dy in -6..=6 {
-                put_pixel(buffer, stride, max_h, cx - 4, cy + dy, color);
-                put_pixel(buffer, stride, max_h, cx + 4, cy + dy, color);
+
+        // Two overlapping copy documents
+        ActionType::Copy => {
+            // Back sheet (top-left)
+            for dx in -6..=2 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 6, color);
             }
-            for dy in -2..=3 {
+            for dy in -6..=2 {
+                put_pixel(buffer, stride, max_h, cx - 6, cy + dy, color);
+            }
+            // Front sheet (bottom-right)
+            for dx in -2..=6 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 2, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 6, color);
+            }
+            for dy in -2..=6 {
+                put_pixel(buffer, stride, max_h, cx - 2, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 6, cy + dy, color);
+            }
+            // Document text lines inside front sheet
+            for dx in 0..=4 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 1, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 3, color);
+            }
+        }
+
+        // Clean pushpin icon
+        ActionType::Pin => {
+            // Round pin head
+            for dy in -7..=-4 {
+                for dx in -4..=3 {
+                    put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
+                }
+            }
+            // Neck
+            for dy in -3..=-1 {
+                for dx in -2..=1 {
+                    put_pixel(buffer, stride, max_h, cx + dx, cy + dy, color);
+                }
+            }
+            // Shoulder ledge
+            for dx in -5..=4 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy, color);
+            }
+            // Sharp needle
+            for dy in 1..=6 {
+                put_pixel(buffer, stride, max_h, cx - 1, cy + dy, color);
                 put_pixel(buffer, stride, max_h, cx, cy + dy, color);
             }
-            put_pixel(buffer, stride, max_h, cx - 2, cy + 1, color);
-            put_pixel(buffer, stride, max_h, cx - 1, cy + 2, color);
-            put_pixel(buffer, stride, max_h, cx + 1, cy + 2, color);
-            put_pixel(buffer, stride, max_h, cx + 2, cy + 1, color);
+            put_pixel(buffer, stride, max_h, cx, cy + 7, color);
+        }
+
+        // Document with vertical scrolling flow indicator
+        ActionType::Scroll => {
+            // Document outline
+            for dx in -5..=5 {
+                put_pixel(buffer, stride, max_h, cx + dx, cy - 7, color);
+                put_pixel(buffer, stride, max_h, cx + dx, cy + 7, color);
+            }
+            for dy in -7..=7 {
+                put_pixel(buffer, stride, max_h, cx - 5, cy + dy, color);
+                put_pixel(buffer, stride, max_h, cx + 5, cy + dy, color);
+            }
+            // Vertical flow arrow
+            for dy in -4..=2 {
+                put_pixel(buffer, stride, max_h, cx, cy + dy, 0xFF10B981); // Emerald flow
+            }
+            for i in 1..=3 {
+                put_pixel(buffer, stride, max_h, cx - i, cy + 2 - i, 0xFF10B981);
+                put_pixel(buffer, stride, max_h, cx + i, cy + 2 - i, 0xFF10B981);
+            }
         }
     }
 }

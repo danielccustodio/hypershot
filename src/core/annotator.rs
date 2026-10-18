@@ -3,7 +3,7 @@ use crate::core::filters::Rect;
 
 pub type ColorRgba = [u8; 4];
 
-/// Draws an antialiased arrow from (x0, y0) to (x1, y1) with a distinct arrowhead.
+/// Draws an antialiased arrow from (x0, y0) to (x1, y1) with a distinct, solid filled arrowhead.
 pub fn draw_arrow(
     image: &mut RgbaImage,
     x0: i32,
@@ -18,32 +18,87 @@ pub fn draw_arrow(
     let dy = (y1 - y0) as f64;
     let length = (dx * dx + dy * dy).sqrt();
 
-    if length < 5.0 {
+    if length < 6.0 {
         return;
     }
 
     let angle = dy.atan2(dx);
-    let head_length = (length * 0.25).clamp(14.0, 32.0);
-    let head_angle = std::f64::consts::PI / 6.0; // 30 degrees
+    let t = thickness.max(1) as f64;
+    let head_len = (t * 3.5 + 14.0).clamp(16.0, 38.0).min(length * 0.65);
+    let head_half_width = head_len * 0.42;
 
-    // Shaft end is slightly retracted to join arrowhead cleanly
-    let shaft_end_x = x1 - (angle.cos() * (head_length * 0.7)) as i32;
-    let shaft_end_y = y1 - (angle.sin() * (head_length * 0.7)) as i32;
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
 
+    let base_cx = x1 as f64 - cos_a * head_len;
+    let base_cy = y1 as f64 - sin_a * head_len;
+
+    let w_left_x = (base_cx - sin_a * head_half_width).round() as i32;
+    let w_left_y = (base_cy + cos_a * head_half_width).round() as i32;
+    let w_right_x = (base_cx + sin_a * head_half_width).round() as i32;
+    let w_right_y = (base_cy - cos_a * head_half_width).round() as i32;
+
+    let shaft_end_x = (base_cx + cos_a * (head_len * 0.25)).round() as i32;
+    let shaft_end_y = (base_cy + sin_a * (head_len * 0.25)).round() as i32;
     draw_line_thick(image, x0, y0, shaft_end_x, shaft_end_y, rgba, thickness);
 
-    // Left and right wings of the arrowhead
-    let left_angle = angle + std::f64::consts::PI - head_angle;
-    let right_angle = angle + std::f64::consts::PI + head_angle;
+    // Solid filled arrowhead
+    fill_triangle_rgba(image, x1, y1, w_left_x, w_left_y, w_right_x, w_right_y, rgba);
 
-    let left_x = x1 + (left_angle.cos() * head_length) as i32;
-    let left_y = y1 + (left_angle.sin() * head_length) as i32;
+    // Clean edge strokes
+    let edge_thick = (thickness / 2).clamp(1, 3);
+    draw_line_thick(image, x1, y1, w_left_x, w_left_y, rgba, edge_thick);
+    draw_line_thick(image, x1, y1, w_right_x, w_right_y, rgba, edge_thick);
+    draw_line_thick(image, w_left_x, w_left_y, w_right_x, w_right_y, rgba, edge_thick);
+}
 
-    let right_x = x1 + (right_angle.cos() * head_length) as i32;
-    let right_y = y1 + (right_angle.sin() * head_length) as i32;
+fn fill_triangle_rgba(
+    image: &mut RgbaImage,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    color: Rgba<u8>,
+) {
+    let w = image.width() as i32;
+    let h = image.height() as i32;
 
-    draw_line_thick(image, x1, y1, left_x, left_y, rgba, thickness);
-    draw_line_thick(image, x1, y1, right_x, right_y, rgba, thickness);
+    let min_y = y0.min(y1).min(y2).max(0);
+    let max_y = y0.max(y1).max(y2).min(h - 1);
+    if min_y > max_y {
+        return;
+    }
+
+    let edges = [(x0, y0, x1, y1), (x1, y1, x2, y2), (x2, y2, x0, y0)];
+
+    for y in min_y..=max_y {
+        let mut min_x = i32::MAX;
+        let mut max_x = i32::MIN;
+
+        for &(ax, ay, bx, by) in &edges {
+            if (ay <= y && y < by) || (by <= y && y < ay) {
+                let dy = by - ay;
+                if dy != 0 {
+                    let x = ax + (y - ay) * (bx - ax) / dy;
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                }
+            } else if ay == by && ay == y {
+                min_x = min_x.min(ax.min(bx));
+                max_x = max_x.max(ax.max(bx));
+            }
+        }
+
+        if min_x <= max_x {
+            let start_x = min_x.clamp(0, w - 1);
+            let end_x = max_x.clamp(0, w - 1);
+            for x in start_x..=end_x {
+                image.put_pixel(x as u32, y as u32, color);
+            }
+        }
+    }
 }
 
 /// Draws an outline or filled rectangle.

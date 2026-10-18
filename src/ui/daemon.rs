@@ -47,6 +47,8 @@ pub fn run_tray_daemon(trigger_immediately: bool) -> Result<(), String> {
         let h_instance_typed = HINSTANCE(h_instance.0);
         let class_name = w!("HyperShotDaemonClass");
 
+        let app_icon = load_tray_icon();
+
         let wnd_class = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             style: CS_HREDRAW | CS_VREDRAW,
@@ -54,12 +56,12 @@ pub fn run_tray_daemon(trigger_immediately: bool) -> Result<(), String> {
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: h_instance_typed,
-            hIcon: HICON::default(),
+            hIcon: app_icon,
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
             hbrBackground: windows::Win32::Graphics::Gdi::HBRUSH::default(),
             lpszMenuName: windows::core::PCWSTR::null(),
             lpszClassName: class_name,
-            hIconSm: HICON::default(),
+            hIconSm: app_icon,
         };
 
         let _ = RegisterClassExW(&wnd_class);
@@ -98,7 +100,7 @@ pub fn run_tray_daemon(trigger_immediately: bool) -> Result<(), String> {
             uID: 1,
             uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
             uCallbackMessage: WM_TRAYICON,
-            hIcon: LoadIconW(None, IDI_APPLICATION).unwrap_or_default(),
+            hIcon: app_icon,
             ..Default::default()
         };
 
@@ -236,6 +238,147 @@ fn trigger_screenshot() {
     }
 }
 
+#[cfg(windows)]
+pub fn load_tray_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
+    use windows::core::PCWSTR;
+    use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
+    use windows::Win32::UI::WindowsAndMessaging::*;
+
+    // 1. Try loading icon.ico from executable's directory
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let ico_path = dir.join("icon.ico");
+            if ico_path.exists() {
+                let wide: Vec<u16> = ico_path.to_string_lossy().encode_utf16().chain(Some(0)).collect();
+                if let Ok(handle) = unsafe {
+                    LoadImageW(None, PCWSTR(wide.as_ptr()), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
+                } {
+                    if !handle.is_invalid() {
+                        return HICON(handle.0);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Try loading from working directory candidate paths
+    for candidate in &["assets/icon.ico", "icon.ico", "../assets/icon.ico"] {
+        let p = std::path::Path::new(candidate);
+        if p.exists() {
+            let wide: Vec<u16> = p.to_string_lossy().encode_utf16().chain(Some(0)).collect();
+            if let Ok(handle) = unsafe {
+                LoadImageW(None, PCWSTR(wide.as_ptr()), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
+            } {
+                if !handle.is_invalid() {
+                    return HICON(handle.0);
+                }
+            }
+        }
+    }
+
+    // 3. Fallback: High-contrast 32-bit ARGB tray icon with glowing cyan reticle and electric amber bolt
+    unsafe {
+        let mut pixels = [0u32; 32 * 32];
+        let mask_bits = [0u8; 32 * 4];
+
+        // Background: rounded dark slate squircle
+        for y in 2..=29 {
+            for x in 2..=29 {
+                let is_corner = (x <= 4 && y <= 4)
+                    || (x >= 27 && y <= 4)
+                    || (x <= 4 && y >= 27)
+                    || (x >= 27 && y >= 27);
+                if !is_corner {
+                    pixels[y * 32 + x] = 0xFF0F172A; // Deep dark slate
+                }
+            }
+        }
+
+        // Cyan reticle corner brackets (thickness 2px)
+        let cyan: u32 = 0xFF00E5FF;
+        for i in 5..=11 {
+            // Top-left
+            pixels[5 * 32 + i] = cyan;
+            pixels[6 * 32 + i] = cyan;
+            pixels[i * 32 + 5] = cyan;
+            pixels[i * 32 + 6] = cyan;
+            // Top-right
+            pixels[5 * 32 + (31 - i)] = cyan;
+            pixels[6 * 32 + (31 - i)] = cyan;
+            pixels[i * 32 + 25] = cyan;
+            pixels[i * 32 + 26] = cyan;
+            // Bottom-left
+            pixels[25 * 32 + i] = cyan;
+            pixels[26 * 32 + i] = cyan;
+            pixels[(31 - i) * 32 + 5] = cyan;
+            pixels[(31 - i) * 32 + 6] = cyan;
+            // Bottom-right
+            pixels[25 * 32 + (31 - i)] = cyan;
+            pixels[26 * 32 + (31 - i)] = cyan;
+            pixels[(31 - i) * 32 + 25] = cyan;
+            pixels[(31 - i) * 32 + 26] = cyan;
+        }
+
+        // Electric lightning bolt in vibrant amber & white core
+        let amber: u32 = 0xFFFFB300;
+        let white: u32 = 0xFFFFFFFF;
+        let bolt_points = [
+            (17, 7), (18, 7),
+            (16, 8), (17, 8), (18, 8),
+            (15, 9), (16, 9), (17, 9),
+            (14, 10), (15, 10), (16, 10),
+            (13, 11), (14, 11), (15, 11),
+            (12, 12), (13, 12), (14, 12),
+            (11, 13), (12, 13), (13, 13), (14, 13), (15, 13), (16, 13), (17, 13), (18, 13),
+            (13, 14), (14, 14), (15, 14), (16, 14), (17, 14), (18, 14), (19, 14),
+            (14, 15), (15, 15), (16, 15), (17, 15),
+            (15, 16), (16, 16), (17, 16),
+            (16, 17), (17, 17), (18, 17),
+            (17, 18), (18, 18),
+            (18, 19), (19, 19),
+            (19, 20), (20, 20),
+            (20, 21), (21, 21),
+            (21, 22),
+            (21, 23),
+            (22, 24),
+        ];
+
+        for &(bx, by) in &bolt_points {
+            if bx < 32 && by < 32 {
+                pixels[by * 32 + bx] = amber;
+            }
+        }
+        // White core inside lightning
+        for y in 10..=16 {
+            pixels[y * 32 + 15] = white;
+            pixels[y * 32 + 16] = white;
+        }
+
+        let hbm_color = CreateBitmap(32, 32, 1, 32, Some(pixels.as_ptr() as *const _));
+        let hbm_mask = CreateBitmap(32, 32, 1, 1, Some(mask_bits.as_ptr() as *const _));
+
+        let icon_info = ICONINFO {
+            fIcon: true.into(),
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: hbm_mask,
+            hbmColor: hbm_color,
+        };
+
+        let hicon = CreateIconIndirect(&icon_info);
+        let _ = DeleteObject(windows::Win32::Graphics::Gdi::HGDIOBJ(hbm_color.0));
+        let _ = DeleteObject(windows::Win32::Graphics::Gdi::HGDIOBJ(hbm_mask.0));
+
+        if let Ok(icon) = hicon {
+            if !icon.is_invalid() {
+                return icon;
+            }
+        }
+
+        LoadIconW(None, IDI_APPLICATION).unwrap_or_default()
+    }
+}
+
 #[cfg(not(windows))]
 pub fn run_tray_daemon(_trigger_immediately: bool) -> Result<(), String> {
     Err("Daemon currently implemented for Windows".to_string())
@@ -245,3 +388,16 @@ pub fn run_tray_daemon(_trigger_immediately: bool) -> Result<(), String> {
 pub fn find_and_signal_running_instance() -> bool {
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn test_load_tray_icon_returns_valid_handle() {
+        let icon = load_tray_icon();
+        assert!(!icon.is_invalid(), "Tray icon must not be an invalid handle!");
+    }
+}
+

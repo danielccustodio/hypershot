@@ -1,4 +1,5 @@
 pub mod daemon;
+pub mod font;
 pub mod overlay;
 pub mod toolbar;
 pub mod window;

@@ -153,6 +153,37 @@ impl OverlaySession {
                 self.render_buffer[row_start..row_end].copy_from_slice(&self.annotated_bgra[row_start..row_end]);
             }
 
+            // Live preview of in-progress annotation stroke during mouse drag
+            if self.drag_mode == DragMode::Annotating && self.scroll_stitcher.is_none() {
+                let (x0, y0) = self.drag_start;
+                let (x1, y1) = self.current_mouse;
+                let color = self.active_color;
+                let thickness = self.stroke_size;
+
+                match self.active_tool {
+                    ToolType::Arrow => {
+                        draw_arrow_fast(&mut self.render_buffer, w, h, x0, y0, x1, y1, color, thickness);
+                    }
+                    ToolType::Line => {
+                        draw_line_fast(&mut self.render_buffer, w, h, x0, y0, x1, y1, color, thickness);
+                    }
+                    ToolType::Rectangle => {
+                        let rect = Rect::from_points(x0, y0, x1, y1);
+                        draw_rect_outline(&mut self.render_buffer, w, h, rect, color, thickness as u32);
+                    }
+                    ToolType::Highlighter => {
+                        let rect = Rect::from_points(x0, y0, x1, y1);
+                        draw_highlight_fast(&mut self.render_buffer, w, h, rect, color);
+                    }
+                    ToolType::Pixelate => {
+                        let rect = Rect::from_points(x0, y0, x1, y1);
+                        apply_pixelate_fast(&mut self.render_buffer, w, h, rect, 12);
+                        draw_rect_outline(&mut self.render_buffer, w, h, rect, 0xFF38BDF8, 1);
+                    }
+                    _ => {}
+                }
+            }
+
             let border_color: u32 = if self.is_scroll_mode { 0xFF10B981 } else { 0xFF3B82F6 };
             for x in sel.x..(sel.x + sel.width) {
                 put_pixel(&mut self.render_buffer, w, h, x as i32, sel.y as i32, border_color);
@@ -757,26 +788,85 @@ fn draw_arrow_fast(buffer: &mut [u32], stride: u32, max_h: u32, x0: i32, y0: i32
     let dx = (x1 - x0) as f64;
     let dy = (y1 - y0) as f64;
     let length = (dx * dx + dy * dy).sqrt();
-    if length < 5.0 { return; }
+    if length < 6.0 { return; }
 
     let angle = dy.atan2(dx);
-    let head_length = (length * 0.25).clamp(14.0, 32.0);
-    let head_angle = std::f64::consts::PI / 6.0;
+    let t = thickness.max(1) as f64;
+    let head_len = (t * 3.5 + 14.0).clamp(16.0, 38.0).min(length * 0.65);
+    let head_half_width = head_len * 0.42;
 
-    let shaft_end_x = x1 - (angle.cos() * (head_length * 0.7)) as i32;
-    let shaft_end_y = y1 - (angle.sin() * (head_length * 0.7)) as i32;
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    let base_cx = x1 as f64 - cos_a * head_len;
+    let base_cy = y1 as f64 - sin_a * head_len;
+
+    let w_left_x = (base_cx - sin_a * head_half_width).round() as i32;
+    let w_left_y = (base_cy + cos_a * head_half_width).round() as i32;
+    let w_right_x = (base_cx + sin_a * head_half_width).round() as i32;
+    let w_right_y = (base_cy - cos_a * head_half_width).round() as i32;
+
+    let shaft_end_x = (base_cx + cos_a * (head_len * 0.25)).round() as i32;
+    let shaft_end_y = (base_cy + sin_a * (head_len * 0.25)).round() as i32;
     draw_line_fast(buffer, stride, max_h, x0, y0, shaft_end_x, shaft_end_y, color, thickness);
 
-    let left_angle = angle + std::f64::consts::PI - head_angle;
-    let right_angle = angle + std::f64::consts::PI + head_angle;
+    // Solid filled arrowhead
+    fill_triangle_fast(buffer, stride, max_h, x1, y1, w_left_x, w_left_y, w_right_x, w_right_y, color);
 
-    let left_x = x1 + (left_angle.cos() * head_length) as i32;
-    let left_y = y1 + (left_angle.sin() * head_length) as i32;
-    let right_x = x1 + (right_angle.cos() * head_length) as i32;
-    let right_y = y1 + (right_angle.sin() * head_length) as i32;
+    // Outer stroke for razor-sharp antialiasing
+    let edge_thick = (thickness / 2).clamp(1, 3);
+    draw_line_fast(buffer, stride, max_h, x1, y1, w_left_x, w_left_y, color, edge_thick);
+    draw_line_fast(buffer, stride, max_h, x1, y1, w_right_x, w_right_y, color, edge_thick);
+    draw_line_fast(buffer, stride, max_h, w_left_x, w_left_y, w_right_x, w_right_y, color, edge_thick);
+}
 
-    draw_line_fast(buffer, stride, max_h, x1, y1, left_x, left_y, color, thickness);
-    draw_line_fast(buffer, stride, max_h, x1, y1, right_x, right_y, color, thickness);
+fn fill_triangle_fast(
+    buffer: &mut [u32],
+    stride: u32,
+    max_h: u32,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    color: u32,
+) {
+    let min_y = y0.min(y1).min(y2).max(0);
+    let max_y = y0.max(y1).max(y2).min(max_h as i32 - 1);
+    if min_y > max_y {
+        return;
+    }
+
+    let edges = [(x0, y0, x1, y1), (x1, y1, x2, y2), (x2, y2, x0, y0)];
+
+    for y in min_y..=max_y {
+        let mut min_x = i32::MAX;
+        let mut max_x = i32::MIN;
+
+        for &(ax, ay, bx, by) in &edges {
+            if (ay <= y && y < by) || (by <= y && y < ay) {
+                let dy = by - ay;
+                if dy != 0 {
+                    let x = ax + (y - ay) * (bx - ax) / dy;
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                }
+            } else if ay == by && ay == y {
+                min_x = min_x.min(ax.min(bx));
+                max_x = max_x.max(ax.max(bx));
+            }
+        }
+
+        if min_x <= max_x {
+            let start_x = min_x.clamp(0, stride as i32 - 1);
+            let end_x = max_x.clamp(0, stride as i32 - 1);
+            let row_offset = (y as u32 * stride) as usize;
+            for x in start_x..=end_x {
+                buffer[row_offset + x as usize] = color;
+            }
+        }
+    }
 }
 
 fn draw_rect_outline(buffer: &mut [u32], stride: u32, max_h: u32, rect: Rect, color: u32, thickness: u32) {
@@ -889,53 +979,7 @@ fn draw_step_badge_fast(buffer: &mut [u32], stride: u32, max_h: u32, cx: i32, cy
 }
 
 fn render_text_to_buffer(buffer: &mut [u32], stride: u32, max_h: u32, text: &str, start_x: i32, start_y: i32, color: u32) {
-    let mut cur_x = start_x;
-    for ch in text.chars() {
-        let bitmap: [u8; 5] = match ch {
-            '0' => [0x1F, 0x11, 0x11, 0x11, 0x1F],
-            '1' => [0x04, 0x0C, 0x04, 0x04, 0x0E],
-            '2' => [0x1F, 0x01, 0x1F, 0x10, 0x1F],
-            '3' => [0x1F, 0x01, 0x0F, 0x01, 0x1F],
-            '4' => [0x11, 0x11, 0x1F, 0x01, 0x01],
-            '5' => [0x1F, 0x10, 0x1F, 0x01, 0x1F],
-            '6' => [0x1F, 0x10, 0x1F, 0x11, 0x1F],
-            '7' => [0x1F, 0x01, 0x02, 0x04, 0x08],
-            '8' => [0x1F, 0x11, 0x1F, 0x11, 0x1F],
-            '9' => [0x1F, 0x11, 0x1F, 0x01, 0x1F],
-            'x' | 'X' => [0x11, 0x0A, 0x04, 0x0A, 0x11],
-            'p' | 'P' => [0x1E, 0x11, 0x1E, 0x10, 0x10],
-            'S' | 's' => [0x1F, 0x10, 0x1F, 0x01, 0x1F],
-            'C' | 'c' => [0x1F, 0x10, 0x10, 0x10, 0x1F],
-            'R' | 'r' => [0x1E, 0x11, 0x1E, 0x14, 0x12],
-            'O' | 'o' => [0x0E, 0x11, 0x11, 0x11, 0x0E],
-            'L' | 'l' => [0x10, 0x10, 0x10, 0x10, 0x1F],
-            'M' | 'm' => [0x11, 0x1B, 0x15, 0x11, 0x11],
-            'D' | 'd' => [0x1E, 0x11, 0x11, 0x11, 0x1E],
-            'E' | 'e' => [0x1F, 0x10, 0x1E, 0x10, 0x1F],
-            'A' | 'a' => [0x0E, 0x11, 0x1F, 0x11, 0x11],
-            'T' | 't' => [0x1F, 0x04, 0x04, 0x04, 0x04],
-            'I' | 'i' => [0x0E, 0x04, 0x04, 0x04, 0x0E],
-            'V' | 'v' => [0x11, 0x11, 0x11, 0x0A, 0x04],
-            '+' => [0x00, 0x04, 0x0E, 0x04, 0x00],
-            ':' => [0x00, 0x04, 0x00, 0x04, 0x00],
-            '[' => [0x0E, 0x08, 0x08, 0x08, 0x0E],
-            ']' => [0x0E, 0x02, 0x02, 0x02, 0x0E],
-            '(' => [0x02, 0x04, 0x04, 0x04, 0x02],
-            ')' => [0x08, 0x04, 0x04, 0x04, 0x08],
-            '-' => [0x00, 0x00, 0x1F, 0x00, 0x00],
-            ' ' => [0x00, 0x00, 0x00, 0x00, 0x00],
-            _ => [0x1F, 0x15, 0x15, 0x15, 0x1F],
-        };
-
-        for (row, byte) in bitmap.iter().enumerate() {
-            for col in 0..5 {
-                if (byte & (1 << (4 - col))) != 0 {
-                    put_pixel(buffer, stride, max_h, cur_x + col, start_y + row as i32, color);
-                }
-            }
-        }
-        cur_x += 7;
-    }
+    crate::ui::font::render_text_to_buffer(buffer, stride, max_h, text, start_x, start_y, color);
 }
 
 #[cfg(test)]
