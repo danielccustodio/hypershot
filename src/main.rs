@@ -97,9 +97,9 @@ fn run_benchmark_demo() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    print!("📸 Performing high-speed screen capture benchmark... ");
+    print!("📸 Performing high-speed multi-monitor capture benchmark... ");
     let t0 = Instant::now();
-    let mut screenshot = CaptureEngine::capture_primary()?;
+    let mut screenshot = CaptureEngine::capture_desktop()?;
     let elapsed = t0.elapsed();
     println!("OK! ({:.2} ms)", elapsed.as_secs_f64() * 1000.0);
 

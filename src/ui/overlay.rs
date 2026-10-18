@@ -473,8 +473,8 @@ impl OverlaySession {
     pub fn on_mouse_wheel(&mut self, delta: i32) {
         if self.is_scroll_mode {
             if let Some(sel) = self.selection {
-                // Re-capture desktop to get newly scrolled content
-                if let Ok(new_desktop) = CaptureEngine::capture_primary() {
+                // Re-capture desktop to get newly scrolled content across any screen
+                if let Ok(new_desktop) = CaptureEngine::capture_desktop() {
                     let clamped = sel.clamp_to_image(new_desktop.width(), new_desktop.height()).unwrap_or(sel);
                     let new_frame = imageops::crop_imm(&new_desktop, clamped.x, clamped.y, clamped.width, clamped.height).to_image();
 

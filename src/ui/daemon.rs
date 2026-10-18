@@ -217,9 +217,9 @@ unsafe extern "system" fn daemon_wndproc(
 
 fn trigger_screenshot() {
     println!("📸 Triggering instant capture...");
-    match CaptureEngine::capture_primary() {
+    match CaptureEngine::capture_desktop() {
         Ok(screenshot) => {
-            println!("   Captured {}x{} frame. Opening overlay...", screenshot.width(), screenshot.height());
+            println!("   Captured {}x{} multi-monitor frame. Opening overlay...", screenshot.width(), screenshot.height());
             if let Ok(outcome) = run_overlay_window(screenshot) {
                 match outcome {
                     CaptureOutcome::CopiedToClipboard => println!("📋 Copied to clipboard!"),
